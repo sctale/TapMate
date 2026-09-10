@@ -53,7 +53,6 @@ src/
   providers/        # 厂商注册表 + API 适配器（OpenAI 兼容 / Gemini）
   secure/           # API Key 加密存取
   database/         # 会话与消息持久化
-  web/              # Web 通道 Cookie 工具
   state/            # 厂商配置全局状态
   screens/          # 对话页 / 配置页 / Web 容器
   components/       # TabBar / 模型切换器 / 消息气泡 / 历史会话
@@ -63,4 +62,4 @@ src/
 
 - Google 禁止 WebView 内 OAuth 登录，Gemini 网页通道自动走 Chrome Custom Tabs
 - ChatGPT 网页登录受 Cloudflare 人机验证影响，个别设备可能需要改用 API 通道
-- 退出网页登录会清除应用内所有站点 Cookie（库限制，无按域名清除的跨平台 API）
+- 网页通道的登录态由官网自身的 Cookie 管理，WebView 系统级 CookieManager 跨启动自动持久化，无需应用层干预

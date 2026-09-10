@@ -6,7 +6,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONT_SIZE, RADIUS, SPACING } from '../constants';
 import { getProvider } from '../providers/registry';
 import { useProviders } from '../state/ProvidersContext';
-import { detectWebLoggedIn } from '../web/cookieUtils';
 
 interface Props {
   providerId: string;
@@ -61,11 +60,11 @@ export default function WebChatScreen({ providerId, onClose }: Props) {
 
   if (!provider) return null;
 
-  // web 通道关闭时：检测登录态并回写配置
+  // web 通道关闭时：标记已配置（登录态由官网自身的 Cookie 管理，
+  // WebView 系统级 CookieManager 会跨启动自动持久化，无需应用层探测）
   const handleClose = async () => {
     closedRef.current = true;
     if (channel === 'web') {
-      const loggedIn = await detectWebLoggedIn(provider);
       const prev = configs.get(providerId);
       await updateConfig({
         providerId,
@@ -73,7 +72,7 @@ export default function WebChatScreen({ providerId, onClose }: Props) {
         channel: 'web',
         apiKey: prev?.apiKey,
         baseUrl: prev?.baseUrl,
-        webLoggedIn: loggedIn,
+        webLoggedIn: true,
       });
     }
     onClose();
