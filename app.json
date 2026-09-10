@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "TapMate",
+    "slug": "TapMate",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "tapmate",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.tapmate.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#7986CB"
+      },
+      "package": "com.tapmate.app",
+      "predictiveBackGestureEnabled": true
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-sqlite",
+      "expo-status-bar",
+      "expo-web-browser"
+    ]
+  }
+}
