@@ -66,6 +66,7 @@ try {
   $readmePath = Join-Path $root 'README.md'
   $readmeRaw = [System.IO.File]::ReadAllText($readmePath, $utf8)
   $readmeRaw = $readmeRaw -replace 'TapMate-v[\d.]+\.apk', "TapMate-v$Version.apk"
+  $readmeRaw = $readmeRaw -replace '当前版本：[\d.]+', "当前版本：$Version"
   [System.IO.File]::WriteAllText($readmePath, $readmeRaw, $utf8)
 
   # ---------- 3. 类型检查（暂无单测，测试文件出现后加 vitest） ----------
