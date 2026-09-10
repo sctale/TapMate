@@ -22,7 +22,7 @@ export default function App() {
           <StatusBar style="dark" />
           {/* 两个页面常驻挂载，切换 Tab 不销毁状态（对话进行中切走不中断） */}
           <View style={[styles.page, tab !== 'home' && styles.pageHidden]}>
-            <HomeScreen />
+            <HomeScreen onOpenWeb={setWebProviderId} />
           </View>
           <View style={[styles.page, tab !== 'config' && styles.pageHidden]}>
             <ConfigScreen onOpenWeb={setWebProviderId} />

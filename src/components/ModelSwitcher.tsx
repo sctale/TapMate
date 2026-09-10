@@ -36,6 +36,7 @@ export default function ModelSwitcher({ models, active, onSelect }: Props) {
           >
             <View style={[styles.dot, { backgroundColor: p?.color ?? COLORS.accent }]} />
             <Text style={[styles.label, on && styles.labelOn]} numberOfLines={1}>
+              {m.modelId === '$web$' ? '🌐 ' : ''}
               {m.label}
             </Text>
           </Pressable>

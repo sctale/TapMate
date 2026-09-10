@@ -14,7 +14,8 @@ import { addMessage, createSession, initChatDB, listMessages, updateMessage } fr
 import type { ChatMessage, ChatSession, ModelRef } from '../types';
 
 // 首页对话页：模型切换 + 流式对话 + 本地持久化 + 历史会话
-export default function HomeScreen() {
+// web/customTabs 通道的厂商也可选（发消息时打开官网官网对话容器）
+export default function HomeScreen({ onOpenWeb }: { onOpenWeb: (providerId: string) => void }) {
   const insets = useSafeAreaInsets();
   const { configs } = useProviders();
   const [model, setModel] = useState<ModelRef | null>(null);
@@ -26,14 +27,18 @@ export default function HomeScreen() {
   const abortRef = useRef<(() => void) | null>(null);
   const listRef = useRef<FlatList>(null);
 
-  // 可用模型列表：已配置厂商 × 默认模型
+  // 可用模型列表：已配置厂商 × 默认模型；api 通道列具体模型，web/customTabs 通道列"官网对话"入口
   const available = useMemo<ModelRef[]>(() => {
     const list: ModelRef[] = [];
     for (const p of PROVIDERS) {
       const cfg = configs.get(p.id);
-      if (!isProviderReady(cfg) || cfg!.channel !== 'api') continue;
-      for (const m of p.defaultModels) {
-        list.push({ providerId: p.id, modelId: m, label: m });
+      if (!isProviderReady(cfg)) continue;
+      if (cfg!.channel === 'api') {
+        for (const m of p.defaultModels) {
+          list.push({ providerId: p.id, modelId: m, label: m });
+        }
+      } else {
+        list.push({ providerId: p.id, modelId: '$web$', label: p.name });
       }
     }
     return list;
@@ -67,6 +72,14 @@ export default function HomeScreen() {
   const send = async () => {
     const text = input.trim();
     if (!text || !model || streaming) return;
+
+    // web/customTabs 通道：打开官网对话容器（官网内完成对话），不经过本地协议
+    if (model.modelId === '$web$') {
+      setInput('');
+      onOpenWeb(model.providerId);
+      return;
+    }
+
     const provider = getProvider(model.providerId)!;
     const cfg = configs.get(model.providerId)!;
     setInput('');
@@ -141,7 +154,7 @@ export default function HomeScreen() {
           <View style={styles.empty}>
             <Text style={styles.emptyEmoji}>🤖</Text>
             <Text style={styles.emptyText}>
-              {available.length === 0 ? '先到「配置」页连接一个模型' : '开始和 ' + (model?.label ?? '') + ' 对话吧'}
+              {available.length === 0 ? '先到「配置」页连接一个模型' : '在下方输入消息开始和 ' + (model?.label ?? '') + ' 对话'}
             </Text>
           </View>
         }
