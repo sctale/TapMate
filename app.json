@@ -2,7 +2,7 @@
   "expo": {
     "name": "TapMate",
     "slug": "TapMate",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "scheme": "tapmate",
@@ -11,8 +11,10 @@
       "bundleIdentifier": "com.tapmate.app"
     },
     "android": {
+      "icon": "./assets/icon.png",
       "adaptiveIcon": {
-        "backgroundColor": "#7986CB"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#F8F6F3"
       },
       "package": "com.tapmate.app",
       "predictiveBackGestureEnabled": true

@@ -19,6 +19,11 @@ const CHROME_UA =
 // Web 容器页：按厂商通道策略选择容器
 // - customTabs：Chrome Custom Tabs（共享系统 Chrome 登录态，Gemini 官方合规方案）
 // - web：应用内 WebView（干净 Chrome UA + Cookie 持久化，ChatGPT/国内厂商）
+//
+// 登录态不变量（关键）：
+//   webLoggedIn 只允许显式登录确认置位（Safety 属性：打开/关闭网页绝不自动标记为已连接），
+//   用户在官网完成登录后点「✅ 我已登录」才记入；点 ✕ 仅关闭不标记。
+//   因此未登录/未确认时，配置页不会错误显示"已连接"。
 export default function WebChatScreen({ providerId, onClose }: Props) {
   const insets = useSafeAreaInsets();
   const provider = getProvider(providerId);
@@ -28,29 +33,38 @@ export default function WebChatScreen({ providerId, onClose }: Props) {
 
   const cfg = configs.get(providerId);
   const channel = cfg?.channel ?? provider?.preferredChannel ?? 'web';
+  // customTabs 从浏览器返回后：待用户确认登录的中间态（不明不是已连接）
+  const [tabsReturned, setTabsReturned] = useState(false);
 
-  // customTabs 通道：直接打开系统浏览器标签页，关闭后标记已登录
+  // 显式确认已登录：仅此路径可以置位 webLoggedIn
+  const confirmLoggedIn = async () => {
+    if (closedRef.current) return;
+    closedRef.current = true;
+    const prev = configs.get(providerId);
+    await updateConfig({
+      providerId,
+      enabled: true,
+      channel: provider?.preferredChannel ?? 'web',
+      apiKey: prev?.apiKey,
+      baseUrl: prev?.baseUrl,
+      webLoggedIn: true,
+    });
+    onClose();
+  };
+
+  // customTabs 通道：打开系统浏览器；返回后进入"待确认"中间态
   useEffect(() => {
     if (channel !== 'customTabs' || !provider) return;
     let cancelled = false;
     (async () => {
-      // 打开 Custom Tabs（共享 Chrome Cookie，用户已登录则直接进入对话页）
       await WebBrowser.openBrowserAsync(provider.webUrl, {
         controlsColor: COLORS.accent,
         toolbarColor: COLORS.surface,
       });
       if (cancelled || closedRef.current) return;
-      // 从浏览器返回后：视为已完成登录流程，更新标记并关闭容器
-      const prev = configs.get(providerId);
-      await updateConfig({
-        providerId,
-        enabled: true,
-        channel: 'customTabs',
-        apiKey: prev?.apiKey,
-        baseUrl: prev?.baseUrl,
-        webLoggedIn: true,
-      });
-      onClose();
+      // 浏览器返回 ≠ 已登录：进入待确认界面，等待用户显式确认
+      setTabsReturned(true);
+      setLoading(false);
     })();
     return () => {
       cancelled = true;
@@ -60,21 +74,9 @@ export default function WebChatScreen({ providerId, onClose }: Props) {
 
   if (!provider) return null;
 
-  // web 通道关闭时：标记已配置（登录态由官网自身的 Cookie 管理，
-  // WebView 系统级 CookieManager 会跨启动自动持久化，无需应用层探测）
+  // web 通道关闭（✕）：仅关闭容器，不标记已连接
   const handleClose = async () => {
     closedRef.current = true;
-    if (channel === 'web') {
-      const prev = configs.get(providerId);
-      await updateConfig({
-        providerId,
-        enabled: true,
-        channel: 'web',
-        apiKey: prev?.apiKey,
-        baseUrl: prev?.baseUrl,
-        webLoggedIn: true,
-      });
-    }
     onClose();
   };
 
@@ -84,15 +86,30 @@ export default function WebChatScreen({ providerId, onClose }: Props) {
       <View style={[styles.wrap, { paddingTop: insets.top + SPACING.sm }]}>
         <Header providerName={provider.name} emoji={provider.emoji} onClose={handleClose} />
         <View style={styles.body}>
-          <ActivityIndicator color={COLORS.accent} />
-          <Text style={styles.hint}>正在浏览器中打开 {provider.name}…</Text>
-          <Text style={styles.hint}>登录完成后返回即可</Text>
+          {!tabsReturned ? (
+            <>
+              <ActivityIndicator color={COLORS.accent} />
+              <Text style={styles.hint}>正在浏览器中打开 {provider.name}…</Text>
+              <Text style={styles.hint}>登录完成后返回本应用</Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.emojiLarge}>{provider.emoji}</Text>
+              <Text style={styles.hint}>已在浏览器中完成 {provider.name} 登录？</Text>
+              <Pressable style={styles.primaryBtn} onPress={confirmLoggedIn}>
+                <Text style={styles.primaryBtnText}>✅ 我已登录</Text>
+              </Pressable>
+              <Text style={styles.hintMedium}>
+                如果尚未登录，可点击右上角 ✕ 返回，之后重新登录
+              </Text>
+            </>
+          )}
         </View>
       </View>
     );
   }
 
-  // web 通道：应用内 WebView
+  // web 通道：应用内 WebView（官网对话/登录），底部常驻「我已登录」确认按钮
   return (
     <View style={[styles.wrap, { paddingTop: insets.top + SPACING.sm }]}>
       <Header providerName={provider.name} emoji={provider.emoji} onClose={handleClose} />
@@ -111,6 +128,12 @@ export default function WebChatScreen({ providerId, onClose }: Props) {
         sharedCookiesEnabled
         onLoadEnd={() => setLoading(false)}
       />
+      <View style={[styles.confirmBar, { paddingBottom: Math.max(insets.bottom, SPACING.sm) }]}>
+        <Pressable style={styles.primaryBtn} onPress={confirmLoggedIn}>
+          <Text style={styles.primaryBtnText}>✅ 我已登录，开始使用</Text>
+        </Pressable>
+        <Text style={styles.hintMedium}>在官网完成登录后，点此确认（未登录请勿点击）</Text>
+      </View>
     </View>
   );
 }
@@ -167,6 +190,25 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
+  emojiLarge: { fontSize: 56, marginBottom: SPACING.sm },
   hint: { fontSize: FONT_SIZE.sm, color: COLORS.textTertiary },
+  hintMedium: { fontSize: FONT_SIZE.xs, color: COLORS.textTertiary },
+  primaryBtn: {
+    backgroundColor: COLORS.accent,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: SPACING.sm,
+  },
+  primaryBtnText: { color: COLORS.white, fontSize: FONT_SIZE.sm, fontWeight: '700' },
   webview: { flex: 1, backgroundColor: COLORS.surface },
+  confirmBar: {
+    backgroundColor: COLORS.surface,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.sm,
+    gap: SPACING.xs,
+  },
 });
