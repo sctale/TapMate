@@ -1,5 +1,6 @@
-import EventSource from 'react-native-sse';
-import type { ChatMessage, StreamHandlers } from '../types';
+import EventSource from "react-native-sse";
+import type { ChatMessage, StreamHandlers } from "../types";
+import { friendlyStreamError } from "./errors";
 
 // ===== OpenAI 兼容协议适配器（SSE 流式）=====
 // 覆盖：OpenAI / DeepSeek / Kimi / 智谱 / 豆包（火山方舟）/ OpenRouter 等
@@ -21,16 +22,16 @@ function toApiMessages(messages: ChatMessage[]) {
 export function chatStreamOpenAICompat(
   config: OpenAICompatConfig,
   messages: ChatMessage[],
-  handlers: StreamHandlers
+  handlers: StreamHandlers,
 ): () => void {
-  const url = `${config.baseUrl.replace(/\/$/, '')}/chat/completions`;
-  let full = '';
+  const url = `${config.baseUrl.replace(/\/$/, "")}/chat/completions`;
+  let full = "";
   let failed = false;
 
   const es = new EventSource(url, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       Authorization: `Bearer ${config.apiKey}`,
     },
     body: JSON.stringify({
@@ -40,18 +41,21 @@ export function chatStreamOpenAICompat(
     }),
   });
 
-  es.addEventListener('message', (event) => {
-    if (!event.data || event.data === '[DONE]') return;
+  es.addEventListener("message", (event) => {
+    if (!event.data || event.data === "[DONE]") return;
     try {
       const json = JSON.parse(event.data);
       // 部分厂商错误通过 SSE 事件返回
       if (json?.error?.message) {
         failed = true;
-        handlers.onError(new Error(json.error.message));
+        console.warn("[openai-compat] provider error:", json.error.message);
+        handlers.onError(
+          new Error(friendlyStreamError({ raw: json.error.message })),
+        );
         es.close();
         return;
       }
-      const delta: string = json?.choices?.[0]?.delta?.content ?? '';
+      const delta: string = json?.choices?.[0]?.delta?.content ?? "";
       if (delta) {
         full += delta;
         handlers.onDelta(delta);
@@ -61,14 +65,21 @@ export function chatStreamOpenAICompat(
     }
   });
 
-  es.addEventListener('error', (event) => {
+  es.addEventListener("error", (event) => {
     failed = true;
-    const msg = 'message' in event ? event.message : `HTTP ${'xhrStatus' in event ? event.xhrStatus : ''}`;
-    handlers.onError(new Error(`连接失败：${msg || '网络错误'}`));
+    const ev = event as {
+      message?: string;
+      type?: string;
+      xhrStatus?: number | string;
+    };
+    const status = typeof ev.xhrStatus === "number" ? ev.xhrStatus : undefined;
+    const raw = ev.message || ev.type || "";
+    console.warn("[openai-compat] stream error:", status, raw);
+    handlers.onError(new Error(friendlyStreamError({ status, raw })));
     es.close();
   });
 
-  es.addEventListener('close', () => {
+  es.addEventListener("close", () => {
     if (!failed) handlers.onDone(full);
   });
 

@@ -2,27 +2,27 @@
 
 // ===== 主题色 =====
 export const COLORS = {
-  background: '#F8F6F3', // 暖米白背景
-  bgAlt: '#F3EFE9', // 深一档背景
-  surface: '#FFFFFF',
-  surfaceAlt: '#FFF9F5', // 暖色卡片底
-  text: '#2D2D2D', // 深灰主文字
-  textSecondary: '#6E6E6E',
-  textTertiary: '#857F78', // 次次级（对比度 ≥ WCAG AA）
-  border: '#F0EDE8', // 暖灰边框
-  borderSubtle: '#E8E4DE',
-  accent: '#7986CB', // 强调靛蓝（Tap 系列主色）
-  accentDark: '#5C6BC0',
-  accentSoft: 'rgba(121,134,203,0.09)', // 主色 9% 透明底（选中胶囊用）
-  success: '#81C784', // 连接成功薄荷绿
-  danger: '#E57373',
-  white: '#FFFFFF',
-  overlay: 'rgba(45,45,45,0.35)', // 弹窗遮罩
-  userBubble: '#7986CB', // 用户消息气泡（靛蓝）
-  userBubbleText: '#FFFFFF',
-  aiBubble: '#FFFFFF', // 模型消息气泡（白卡）
-  warningBg: '#FFF3E0', // 提示底色
-  warningText: '#E65100',
+  background: "#F8F6F3", // 暖米白背景
+  bgAlt: "#F3EFE9", // 深一档背景
+  surface: "#FFFFFF",
+  surfaceAlt: "#FFF9F5", // 暖色卡片底
+  text: "#2D2D2D", // 深灰主文字
+  textSecondary: "#6E6E6E",
+  textTertiary: "#857F78", // 次次级（对比度 ≥ WCAG AA）
+  border: "#F0EDE8", // 暖灰边框
+  borderSubtle: "#E8E4DE",
+  accent: "#7986CB", // 强调靛蓝（Tap 系列主色）
+  accentDark: "#5C6BC0",
+  accentSoft: "rgba(121,134,203,0.09)", // 主色 9% 透明底（选中胶囊用）
+  success: "#81C784", // 连接成功薄荷绿
+  danger: "#E57373",
+  white: "#FFFFFF",
+  overlay: "rgba(45,45,45,0.35)", // 弹窗遮罩
+  userBubble: "#7986CB", // 用户消息气泡（靛蓝）
+  userBubbleText: "#FFFFFF",
+  aiBubble: "#FFFFFF", // 模型消息气泡（白卡）
+  warningBg: "#FFF3E0", // 提示底色
+  warningText: "#E65100",
 };
 
 // ===== 间距（大留白，Headspace 风格）=====
@@ -55,15 +55,10 @@ export const FONT_SIZE = {
   xxl: 28,
 };
 
-// ===== 全局事件名 =====
-export const APP_EVENTS = {
-  PROVIDERS_CHANGED: 'tapmate:providers_changed', // 厂商配置变更
-  SESSION_CHANGED: 'tapmate:session_changed', // 会话切换/新建
-} as const;
-
-// ===== 存储 key =====
+// ===== 设置项存储 key（经 credentials.ts 的 loadSetting/saveSetting 读写）=====
 export const SETTING_KEYS = {
-  LAST_MODEL_ID: 'last_model_id', // 上次使用的模型
+  LAST_MODEL: "last_model", // 上次使用的模型（JSON: {providerId, modelId}）
+  WELCOME_SEEN: "welcome_seen", // 首启双通道引导是否已看过
 } as const;
 
 // 生成 uuid（时间戳36进制 + 随机串）

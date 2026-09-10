@@ -1,5 +1,6 @@
-import EventSource from 'react-native-sse';
-import type { ChatMessage, StreamHandlers } from '../types';
+import EventSource from "react-native-sse";
+import type { ChatMessage, StreamHandlers } from "../types";
+import { friendlyStreamError } from "./errors";
 
 // ===== Gemini 原生协议适配器（SSE 流式）=====
 // 端点：{baseUrl}/models/{model}:streamGenerateContent?alt=sse&key=KEY
@@ -14,9 +15,9 @@ export interface GeminiConfig {
 // 把本地消息转为 Gemini contents 格式
 function toContents(messages: ChatMessage[]) {
   return messages
-    .filter((m) => m.content.trim().length > 0 && m.role !== 'system')
+    .filter((m) => m.content.trim().length > 0 && m.role !== "system")
     .map((m) => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
+      role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.content }],
     }));
 }
@@ -25,31 +26,35 @@ function toContents(messages: ChatMessage[]) {
 export function chatStreamGemini(
   config: GeminiConfig,
   messages: ChatMessage[],
-  handlers: StreamHandlers
+  handlers: StreamHandlers,
 ): () => void {
-  const base = config.baseUrl.replace(/\/$/, '');
+  const base = config.baseUrl.replace(/\/$/, "");
   const url = `${base}/models/${config.model}:streamGenerateContent?alt=sse&key=${encodeURIComponent(config.apiKey)}`;
-  let full = '';
+  let full = "";
   let failed = false;
 
   const es = new EventSource(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ contents: toContents(messages) }),
   });
 
-  es.addEventListener('message', (event) => {
+  es.addEventListener("message", (event) => {
     if (!event.data) return;
     try {
       const json = JSON.parse(event.data);
       // 错误响应：{ error: { message } }
       if (json?.error?.message) {
         failed = true;
-        handlers.onError(new Error(json.error.message));
+        console.warn("[gemini] provider error:", json.error.message);
+        handlers.onError(
+          new Error(friendlyStreamError({ raw: json.error.message })),
+        );
         es.close();
         return;
       }
-      const parts: { text?: string }[] = json?.candidates?.[0]?.content?.parts ?? [];
+      const parts: { text?: string }[] =
+        json?.candidates?.[0]?.content?.parts ?? [];
       for (const part of parts) {
         if (part.text) {
           full += part.text;
@@ -61,14 +66,21 @@ export function chatStreamGemini(
     }
   });
 
-  es.addEventListener('error', (event) => {
+  es.addEventListener("error", (event) => {
     failed = true;
-    const msg = 'message' in event ? event.message : `HTTP ${'xhrStatus' in event ? event.xhrStatus : ''}`;
-    handlers.onError(new Error(`连接失败：${msg || '网络错误'}`));
+    const ev = event as {
+      message?: string;
+      type?: string;
+      xhrStatus?: number | string;
+    };
+    const status = typeof ev.xhrStatus === "number" ? ev.xhrStatus : undefined;
+    const raw = ev.message || ev.type || "";
+    console.warn("[gemini] stream error:", status, raw);
+    handlers.onError(new Error(friendlyStreamError({ status, raw })));
     es.close();
   });
 
-  es.addEventListener('close', () => {
+  es.addEventListener("close", () => {
     if (!failed) handlers.onDone(full);
   });
 

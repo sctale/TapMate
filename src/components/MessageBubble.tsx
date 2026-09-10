@@ -1,33 +1,121 @@
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { COLORS, FONT_SIZE, RADIUS, SPACING } from '../constants';
-import type { ChatMessage } from '../types';
+import React, { useEffect } from "react";
+import {
+  Animated,
+  Easing,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { COLORS, FONT_SIZE, RADIUS, SPACING } from "../constants";
+import MarkdownText from "./MarkdownText";
+import type { ChatMessage } from "../types";
 
-// 单条消息气泡：用户右对齐靛蓝，模型左对齐白卡
-export default function MessageBubble({ msg }: { msg: ChatMessage }) {
-  const isUser = msg.role === 'user';
+// 单条消息气泡：用户右对齐靛蓝，模型左对齐白卡（Markdown 渲染）
+// thinking=生成中占位动效（audit-1）；error=警示态样式（audit-21）；长按=复制/重试动作入口（audit-17）
+interface Props {
+  msg: ChatMessage;
+  thinking?: boolean; // 该气泡为流式生成中的空占位
+  onLongPress?: (msg: ChatMessage) => void;
+}
+
+export default function MessageBubble({ msg, thinking, onLongPress }: Props) {
+  const isUser = msg.role === "user";
   return (
     <View style={[styles.row, isUser ? styles.rowUser : styles.rowAi]}>
-      <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAi]}>
-        <Text style={[styles.text, isUser ? styles.textUser : styles.textAi]}>
-          {msg.content}
-        </Text>
+      <Pressable
+        style={[
+          styles.bubble,
+          isUser ? styles.bubbleUser : styles.bubbleAi,
+          !!msg.error && styles.bubbleError,
+        ]}
+        onLongPress={onLongPress ? () => onLongPress(msg) : undefined}
+        delayLongPress={350}
+      >
+        {thinking && !msg.content ? (
+          <ThinkingDots />
+        ) : isUser ? (
+          <Text style={[styles.text, styles.textUser]} selectable>
+            {msg.content}
+          </Text>
+        ) : (
+          <MarkdownText source={msg.content} />
+        )}
         {msg.error ? <Text style={styles.error}>⚠️ {msg.error}</Text> : null}
-      </View>
+      </Pressable>
     </View>
+  );
+}
+
+// 三个错峰跳动的小圆点：assistant 占位气泡的空内容态
+function ThinkingDots() {
+  return (
+    <View style={styles.thinkingRow}>
+      <BounceDot delay={0} />
+      <BounceDot delay={160} />
+      <BounceDot delay={320} />
+      <Text style={styles.thinkingText}>正在思考…</Text>
+    </View>
+  );
+}
+
+function BounceDot({ delay }: { delay: number }) {
+  const anim = new Animated.Value(0);
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(delay),
+        Animated.timing(anim, {
+          toValue: 1,
+          duration: 320,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(anim, {
+          toValue: 0,
+          duration: 320,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <Animated.View
+      style={[
+        styles.dot,
+        {
+          opacity: anim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0.3, 1],
+          }),
+          transform: [
+            {
+              translateY: anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, -3],
+              }),
+            },
+          ],
+        },
+      ]}
+    />
   );
 }
 
 const styles = StyleSheet.create({
   row: {
-    flexDirection: 'row',
+    flexDirection: "row",
     marginBottom: SPACING.sm,
     paddingHorizontal: SPACING.md,
   },
-  rowUser: { justifyContent: 'flex-end' },
-  rowAi: { justifyContent: 'flex-start' },
+  rowUser: { justifyContent: "flex-end" },
+  rowAi: { justifyContent: "flex-start" },
   bubble: {
-    maxWidth: '82%',
+    maxWidth: "82%",
     borderRadius: RADIUS.md,
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.sm + 2,
@@ -42,15 +130,32 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     borderBottomLeftRadius: RADIUS.xs,
   },
+  bubbleError: {
+    borderColor: COLORS.danger,
+    borderLeftWidth: 3,
+    backgroundColor: "#FDF1F1",
+  },
   text: {
     fontSize: FONT_SIZE.md,
     lineHeight: 22,
   },
   textUser: { color: COLORS.userBubbleText },
-  textAi: { color: COLORS.text },
+  thinkingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 4,
+  },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.accent },
+  thinkingText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textTertiary,
+    marginLeft: SPACING.xs,
+  },
   error: {
     marginTop: SPACING.xs,
     fontSize: FONT_SIZE.xs,
     color: COLORS.danger,
+    fontWeight: "600",
   },
 });

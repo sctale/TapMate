@@ -1,9 +1,10 @@
 {
   "name": "tapmate",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "main": "index.ts",
   "dependencies": {
     "expo": "~56.0.12",
+    "expo-clipboard": "^57.0.1",
     "expo-constants": "~56.0.25",
     "expo-secure-store": "~56.0.4",
     "expo-splash-screen": "^56.0.10",
