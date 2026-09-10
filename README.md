@@ -32,7 +32,21 @@ npm run android    # 构建并安装到设备
 
 正式版 APK 在 [GitHub Releases](https://github.com/sctale/TapMate/releases) 页面下载（`TapMate-v0.1.1.apk`，包名 `com.tapmate.app`）。
 
-## 从源码构建 APK
+## 构建与发布
+
+**发布流程：全部本地构建**，产物推送 GitHub Release（不使用 GitHub Actions）。
+
+### 一键发布脚本
+
+```bash
+# 1. 在 CHANGELOG.md 补充目标版本条目（## [X.Y.Z] - 日期）
+# 2. 一键发布：自动 patch +1（或 -Version 0.2.0 指定版本）
+powershell -ExecutionPolicy Bypass -File scripts\release-app.ps1
+```
+
+脚本自动完成全链路：版本号同步（app.json / package.json / package-lock.json / android build.gradle / README）→ 类型检查 → 本地构建 release APK → `aapt` 校验 versionName/versionCode → 复制到根目录 `TapMate-vX.Y.Z.apk` → git 提交推送 → 创建 GitHub Release 并上传 APK（说明取自 CHANGELOG 最新条目）。
+
+### 从源码构建 APK
 
 ```bash
 npx expo prebuild --platform android
@@ -40,9 +54,9 @@ cd android && ./gradlew assembleRelease
 # 产物：android/app/build/outputs/apk/release/app-release.apk
 ```
 
-## 版本号管理
+### 版本号管理
 
-版本号三处同步（app.json / package.json / package-lock.json）：
+版本号单一数据源为 `app.json`，发布脚本自动同步三处（app.json / package.json / package-lock.json），也可手动：
 
 ```bash
 node scripts/sync-version.js 0.2.0
@@ -51,6 +65,9 @@ node scripts/sync-version.js 0.2.0
 ## 项目结构
 
 ```
+scripts/
+  sync-version.js         # 版本号三处同步
+  release-app.ps1         # APP 一键发布脚本（版本同步→构建→校验→Release）
 src/
   constants/        # Tap 系列设计 token（色板/间距/圆角/字号）
   types/            # 全局类型
