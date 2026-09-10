@@ -1,0 +1,40 @@
+{
+  "name": "tapmate",
+  "version": "0.1.0",
+  "main": "index.ts",
+  "dependencies": {
+    "expo": "~56.0.12",
+    "expo-constants": "~56.0.25",
+    "expo-secure-store": "~56.0.4",
+    "expo-splash-screen": "^56.0.10",
+    "expo-sqlite": "~56.0.5",
+    "expo-status-bar": "~56.0.4",
+    "expo-web-browser": "~56.0.6",
+    "react": "19.2.3",
+    "react-native": "0.85.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-sse": "^1.2.1",
+    "react-native-webview": "13.16.1"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "eslint": "^9.39.4",
+    "eslint-config-expo": "~56.0.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.6",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.0"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\" \"App.tsx\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\" \"App.tsx\"",
+    "test": "vitest run"
+  },
+  "private": true
+}
