@@ -391,7 +391,7 @@ export default function HomeScreen({
     >
       <View style={{ paddingTop: insets.top + SPACING.sm }}>
         <View style={styles.header}>
-          <Text style={styles.title}>💬 TapMate</Text>
+          <Text style={styles.title}>💬 一点搭子</Text>
           <View style={styles.headerActions}>
             <Pressable
               style={styles.headerBtn}
