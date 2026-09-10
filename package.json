@@ -4,7 +4,7 @@
   "main": "index.ts",
   "dependencies": {
     "expo": "~56.0.12",
-    "expo-clipboard": "^57.0.1",
+    "expo-clipboard": "~56.0.4",
     "expo-constants": "~56.0.25",
     "expo-secure-store": "~56.0.4",
     "expo-splash-screen": "^56.0.10",

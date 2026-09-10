@@ -7,3 +7,4 @@ ios/
 *.log
 .env
 .env.*
+spark-output/
