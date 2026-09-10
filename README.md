@@ -28,7 +28,11 @@ npm start          # 启动 Metro
 npm run android    # 构建并安装到设备
 ```
 
-## 构建 APK
+## 下载安装
+
+正式版 APK 在 [GitHub Releases](https://github.com/sctale/TapMate/releases) 页面下载（`TapMate-v0.1.0.apk`，包名 `com.tapmate.app`）。
+
+## 从源码构建 APK
 
 ```bash
 npx expo prebuild --platform android
