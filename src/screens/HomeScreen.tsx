@@ -17,6 +17,7 @@ import {
   View,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
+import * as WebBrowser from "expo-web-browser";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   COLORS,
@@ -30,6 +31,7 @@ import MessageBubble from "../components/MessageBubble";
 import ModelSwitcher from "../components/ModelSwitcher";
 import SessionHistory from "../components/SessionHistory";
 import WelcomeModal from "../components/WelcomeModal";
+import InlineWebChat from "../components/InlineWebChat";
 import { useToast } from "../components/Toast";
 import { PROVIDERS, getProvider } from "../providers/registry";
 import { startChatStream } from "../providers/chatEngine";
@@ -50,11 +52,14 @@ import type { ChatMessage, ChatSession, ModelRef } from "../types";
 const IDLE_TIMEOUT_MS = 45000;
 
 // 首页对话页：模型切换 + 流式对话（可停止）+ 本地持久化 + 历史会话
-// web/customTabs 通道的厂商发消息时打开官网容器，草稿保留并复制到剪贴板（audit-4）
+// 官网通道（web）模型：官网会话直接嵌入首页内容区（InlineWebChat），聊天无需跳转第二个页面；
+// customTabs 通道（Google 政策禁止应用内对话）：首页展示浏览器引导卡片。
 export default function HomeScreen({
-  onOpenWeb,
+  inlineWebProviderId,
+  onInlineWebConsumed,
 }: {
-  onOpenWeb: (providerId: string) => void;
+  inlineWebProviderId: string | null;
+  onInlineWebConsumed: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const { configs, loaded } = useProviders();
@@ -67,6 +72,7 @@ export default function HomeScreen({
   const [welcomeVisible, setWelcomeVisible] = useState(false);
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
   const [showJump, setShowJump] = useState(false);
+  const [inlineDismissed, setInlineDismissed] = useState(false);
   const sessionRef = useRef<ChatSession | null>(null);
   const nearBottomRef = useRef(true);
   const restoredRef = useRef(false);
@@ -77,6 +83,12 @@ export default function HomeScreen({
   const streamHandle = useRef<{ stop: () => void } | null>(null);
 
   const isWebModel = model?.modelId === "$web$";
+  const activeChannel = model
+    ? configs.get(model.providerId)?.channel
+    : undefined;
+  const isInlineWeb = isWebModel && activeChannel === "web"; // 应用内嵌入模式
+  const isBrowserGate = isWebModel && activeChannel === "customTabs"; // 浏览器模式（Google 政策）
+  const showInline = isInlineWeb && !inlineDismissed;
 
   // 可用模型列表：已配置厂商 × 默认模型；api 通道列具体模型，web/customTabs 通道列"官网对话"入口
   const available = useMemo<ModelRef[]>(() => {
@@ -144,6 +156,30 @@ export default function HomeScreen({
     setStreaming(false);
   }, []);
 
+  // 登录确认 → 自动选中该厂商并进入首页嵌入对话（修复「点我已登录后无处可用」）
+  // 仅在 inlineWebProviderId 注入时触发一次；其余依赖为稳定引用或刻意不参与，避免循环触发
+  /* eslint-disable react-hooks/exhaustive-deps */
+  useEffect(() => {
+    if (!inlineWebProviderId || !loaded) return;
+    const p = getProvider(inlineWebProviderId);
+    if (p) {
+      const m: ModelRef = { providerId: p.id, modelId: "$web$", label: p.name };
+      abortStream();
+      setModel(m);
+      persistModel(m);
+      setMessages([]);
+      sessionRef.current = null;
+      setInlineDismissed(false);
+      toast.show(
+        configs.get(p.id)?.channel === "customTabs"
+          ? `已连接 ${p.name}，在首页点「在浏览器打开」即可对话`
+          : `已连接 ${p.name}，官网对话已嵌入首页，直接聊`,
+      );
+    }
+    onInlineWebConsumed();
+  }, [inlineWebProviderId, loaded]);
+  /* eslint-enable react-hooks/exhaustive-deps */
+
   // 发起一次流式对话：节流渲染 + 空闲超时 + 完成/失败回填（均为闭包私有状态，新旧流互不干扰）
   const runStream = useCallback(
     (target: ModelRef, context: ChatMessage[], aiMsg: ChatMessage) => {
@@ -175,9 +211,7 @@ export default function HomeScreen({
         if (errMsg) {
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === aiMsg.id
-                ? { ...m, content: buffer, error: errMsg }
-                : m,
+              m.id === aiMsg.id ? { ...m, content: buffer, error: errMsg } : m,
             ),
           );
         }
@@ -185,10 +219,7 @@ export default function HomeScreen({
       };
       const resetIdle = () => {
         if (idleT) clearTimeout(idleT);
-        idleT = setTimeout(
-          () => settle(IDLE_TIMEOUT_MESSAGE),
-          IDLE_TIMEOUT_MS,
-        );
+        idleT = setTimeout(() => settle(IDLE_TIMEOUT_MESSAGE), IDLE_TIMEOUT_MS);
       };
       resetIdle();
 
@@ -224,13 +255,8 @@ export default function HomeScreen({
     const text = input.trim();
     if (!text || !model || streaming) return;
 
-    // web/customTabs 通道：打开官网对话容器；草稿保留在输入框并复制剪贴板，不再静默丢弃（audit-4）
-    if (model.modelId === "$web$") {
-      await Clipboard.setStringAsync(text);
-      onOpenWeb(model.providerId);
-      toast.show("已打开官网对话，草稿已复制到剪贴板（输入框中也保留）");
-      return;
-    }
+    // 官网通道模型不渲染原生输入区（对话在嵌入官网/浏览器内进行），此处仅防御
+    if (model.modelId === "$web$") return;
 
     const userMsg: ChatMessage = {
       id: genUuid(),
@@ -255,7 +281,7 @@ export default function HomeScreen({
     runStream(model, [...messages, userMsg], aiMsg);
   };
 
-  // 切换模型：中断在途流 + 开新会话（每个会话绑定一个模型）
+  // 切换模型：中断在途流 + 开新会话（每个会话绑定一个模型）；点胶囊即（重新）打开嵌入对话
   const selectModel = useCallback(
     (m: ModelRef) => {
       abortStream();
@@ -264,6 +290,7 @@ export default function HomeScreen({
       setMessages([]);
       sessionRef.current = null;
       setShowJump(false);
+      setInlineDismissed(false);
     },
     [abortStream, persistModel],
   );
@@ -350,10 +377,12 @@ export default function HomeScreen({
 
   const emptyText = useMemo(() => {
     if (available.length === 0) return "先到「配置」页连接一个模型";
+    if (isBrowserGate)
+      return `${model?.label ?? ""} 的对话在系统浏览器中进行（Google 政策），下方一键打开`;
     if (isWebModel)
-      return `点「打开官网」与 ${model?.label ?? ""} 对话，草稿会保留并复制到剪贴板`;
+      return `点上方模型胶囊，${model?.label ?? ""} 的对话会直接嵌入在这里，无需跳转`;
     return `在下方输入消息开始和 ${model?.label ?? ""} 对话`;
-  }, [available.length, isWebModel, model?.label]);
+  }, [available.length, isWebModel, isBrowserGate, model?.label]);
 
   return (
     <KeyboardAvoidingView
@@ -391,83 +420,121 @@ export default function HomeScreen({
         />
       </View>
       <View style={{ flex: 1 }}>
-        <FlatList
-          ref={listRef}
-          data={messages}
-          keyExtractor={(m) => m.id}
-          renderItem={({ item, index }) => (
-            <MessageBubble
-              msg={item}
-              thinking={
-                streaming &&
-                index === messages.length - 1 &&
-                item.role === "assistant"
+        {showInline ? (
+          <InlineWebChat
+            providerId={model!.providerId}
+            onExit={() => setInlineDismissed(true)}
+          />
+        ) : isBrowserGate ? (
+          <BrowserGate providerId={model!.providerId} />
+        ) : (
+          <>
+            <FlatList
+              ref={listRef}
+              data={messages}
+              keyExtractor={(m) => m.id}
+              renderItem={({ item, index }) => (
+                <MessageBubble
+                  msg={item}
+                  thinking={
+                    streaming &&
+                    index === messages.length - 1 &&
+                    item.role === "assistant"
+                  }
+                  onLongPress={setActionMsg}
+                />
+              )}
+              contentContainerStyle={styles.list}
+              onScroll={onScroll}
+              scrollEventThrottle={16}
+              onContentSizeChange={() => {
+                if (nearBottomRef.current)
+                  listRef.current?.scrollToEnd({ animated: true });
+              }}
+              ListEmptyComponent={
+                <View style={styles.empty}>
+                  <Text style={styles.emptyEmoji}>🤖</Text>
+                  <Text style={styles.emptyText}>{emptyText}</Text>
+                  {isWebModel ? (
+                    <Pressable
+                      style={styles.openInlineBtn}
+                      onPress={() => setInlineDismissed(false)}
+                    >
+                      <Text style={styles.openInlineBtnText}>
+                        🌐 嵌入 {model?.label ?? "官网"} 对话，直接在首页聊
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
               }
-              onLongPress={setActionMsg}
             />
-          )}
-          contentContainerStyle={styles.list}
-          onScroll={onScroll}
-          scrollEventThrottle={16}
-          onContentSizeChange={() => {
-            if (nearBottomRef.current)
-              listRef.current?.scrollToEnd({ animated: true });
-          }}
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyEmoji}>🤖</Text>
-              <Text style={styles.emptyText}>{emptyText}</Text>
-            </View>
-          }
-        />
-        {showJump ? (
-          <Pressable
-            style={styles.jumpBtn}
-            onPress={() => {
-              listRef.current?.scrollToEnd({ animated: true });
-              setShowJump(false);
-            }}
-          >
-            <Text style={styles.jumpText}>回到底部 ↓</Text>
-          </Pressable>
-        ) : null}
+            {showJump ? (
+              <Pressable
+                style={styles.jumpBtn}
+                onPress={() => {
+                  listRef.current?.scrollToEnd({ animated: true });
+                  setShowJump(false);
+                }}
+              >
+                <Text style={styles.jumpText}>回到底部 ↓</Text>
+              </Pressable>
+            ) : null}
+          </>
+        )}
       </View>
-      <View
-        style={[styles.inputBar, { paddingBottom: SPACING.sm + insets.bottom }]}
-      >
-        <TextInput
-          style={styles.input}
-          placeholder={
-            isWebModel ? "输入问题，打开官网时自动复制到剪贴板…" : "输入消息…"
-          }
-          placeholderTextColor={COLORS.textTertiary}
-          value={input}
-          onChangeText={setInput}
-          multiline
-          submitBehavior="newline"
-          maxLength={8000}
-        />
-        <Pressable
+      {/* API 模型才有原生输入区；官网模型的对话在嵌入网页/浏览器内进行 */}
+      {!isWebModel ? (
+        <View
           style={[
-            styles.sendBtn,
-            streaming && styles.sendBtnStop,
-            !streaming && (!input.trim() || !model) && styles.sendBtnOff,
+            styles.inputBar,
+            { paddingBottom: SPACING.sm + insets.bottom },
           ]}
-          onPress={
-            streaming
-              ? () => {
-                  abortStream();
-                  toast.show("已停止生成");
-                }
-              : send
-          }
-          disabled={!streaming && (!input.trim() || !model)}
         >
-          <Text style={styles.sendText}>
-            {streaming ? "■ 停止" : isWebModel ? "打开官网" : "发送"}
+          <TextInput
+            style={styles.input}
+            placeholder="输入消息…"
+            placeholderTextColor={COLORS.textTertiary}
+            value={input}
+            onChangeText={setInput}
+            multiline
+            submitBehavior="newline"
+            maxLength={8000}
+          />
+          <Pressable
+            style={[
+              styles.sendBtn,
+              streaming && styles.sendBtnStop,
+              !streaming && (!input.trim() || !model) && styles.sendBtnOff,
+            ]}
+            onPress={
+              streaming
+                ? () => {
+                    abortStream();
+                    toast.show("已停止生成");
+                  }
+                : send
+            }
+            disabled={!streaming && (!input.trim() || !model)}
+          >
+            <Text style={styles.sendText}>{streaming ? "■ 停止" : "发送"}</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <View
+          style={[
+            styles.webInputHint,
+            { paddingBottom: SPACING.sm + insets.bottom },
+          ]}
+        >
+          <Text style={styles.webInputHintText}>
+            {showInline
+              ? "💬 对话就在上方嵌入的官网页面中进行，不占用 API 费用"
+              : isBrowserGate
+                ? "💬 按上方按钮在系统浏览器中对话（Google 政策限制应用内聊天）"
+                : "💬 点上方模型胶囊，重开嵌入对话"}
           </Text>
-        </Pressable>
-      </View>
+        </View>
+      )}
 
       {/* 长按消息的浮层动作（audit-17） */}
       <Modal
@@ -518,6 +585,44 @@ export default function HomeScreen({
       />
       {toast.node}
     </KeyboardAvoidingView>
+  );
+}
+
+// customTabs 厂商（Gemini）的首页引导卡：Google 禁止第三方应用内嵌其登录/对话，
+// 唯一合规路径是系统浏览器（Custom Tabs 共享 Chrome 登录态）。卡片给出原因与一键入口。
+function BrowserGate({ providerId }: { providerId: string }) {
+  const p = getProvider(providerId);
+  const [opened, setOpened] = useState(false);
+  if (!p) return null;
+  const open = async () => {
+    try {
+      setOpened(true);
+      await WebBrowser.openBrowserAsync(p.webUrl, {
+        controlsColor: COLORS.accent,
+        toolbarColor: COLORS.surface,
+      });
+    } catch {
+      console.warn("[browser-gate] open failed", p.webUrl);
+    }
+  };
+  return (
+    <View style={styles.gate}>
+      <Text style={styles.gateEmoji}>{p.emoji}</Text>
+      <Text style={styles.gateTitle}>{p.name} · 浏览器对话模式</Text>
+      <Text style={styles.gateDesc}>
+        Google
+        禁止第三方应用在其官网内登录与对话（官方政策），因此该厂商通过系统浏览器标签使用——共享
+        Chrome 登录态，登录一次长期有效，免费用你的订阅额度。
+      </Text>
+      <Pressable style={styles.gateBtn} onPress={open}>
+        <Text style={styles.gateBtnText}>🌐 在浏览器打开 {p.name}</Text>
+      </Pressable>
+      {opened ? (
+        <Text style={styles.gateHint}>
+          浏览器标签已打开，聊完直接回到这里即可；下次点模型胶囊也能再次打开
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -604,6 +709,57 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.sm,
     color: COLORS.accentDark,
     fontWeight: "700",
+  },
+  openInlineBtn: {
+    backgroundColor: COLORS.accent,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: 11,
+  },
+  openInlineBtnText: {
+    color: COLORS.white,
+    fontSize: FONT_SIZE.sm,
+    fontWeight: "700",
+  },
+  webInputHint: { paddingHorizontal: SPACING.lg, paddingTop: SPACING.sm },
+  webInputHintText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textTertiary,
+    textAlign: "center",
+    lineHeight: 17,
+  },
+  gate: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: SPACING.xl,
+    gap: SPACING.sm,
+  },
+  gateEmoji: { fontSize: 48 },
+  gateTitle: { fontSize: FONT_SIZE.lg, fontWeight: "800", color: COLORS.text },
+  gateDesc: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.textSecondary,
+    textAlign: "center",
+    lineHeight: 21,
+  },
+  gateBtn: {
+    backgroundColor: COLORS.accent,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: 12,
+    marginTop: SPACING.xs,
+  },
+  gateBtnText: {
+    color: COLORS.white,
+    fontSize: FONT_SIZE.md,
+    fontWeight: "700",
+  },
+  gateHint: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textTertiary,
+    textAlign: "center",
+    lineHeight: 17,
   },
   overlay: {
     flex: 1,

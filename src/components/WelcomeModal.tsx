@@ -31,7 +31,7 @@ export default function WelcomeModal({ visible, onDismiss }: Props) {
             <View style={styles.rowInfo}>
               <Text style={styles.rowTitle}>官网通道 · 免费</Text>
               <Text style={styles.rowSub}>
-                登录厂商官网账号，对话在官网页面里进行，用你的订阅额度；消息会帮你复制到剪贴板方便粘贴
+                登录厂商官网账号后，官网聊天界面直接嵌入首页使用，用你的订阅额度，不用跳转其他页面
               </Text>
             </View>
           </View>

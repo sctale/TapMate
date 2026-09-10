@@ -13,26 +13,29 @@ import * as WebBrowser from "expo-web-browser";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS, FONT_SIZE, RADIUS, SPACING } from "../constants";
 import { getProvider } from "../providers/registry";
+import { CHROME_UA, WEBVIEW_BASE_PROPS } from "../providers/webConfig";
 import { useProviders } from "../state/ProvidersContext";
 
 interface Props {
   providerId: string;
   onClose: () => void;
+  // 登录确认成功后的回调：App 据此关闭覆盖层、切回首页并自动打开嵌入对话
+  onConfirmed?: (providerId: string) => void;
 }
 
-// 干净的 Chrome UA（去掉 "; wv" WebView 标记，降低 ChatGPT Turnstile 等拦截概率）
-const CHROME_UA =
-  "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
-
-// Web 容器页：按厂商通道策略选择容器
+// Web 登录容器：按厂商通道策略选择容器
 // - customTabs：Chrome Custom Tabs（共享系统 Chrome 登录态，Google 官方合规方案）
-// - web：应用内 WebView（干净 Chrome UA + Cookie 持久化，ChatGPT/国内厂商）
+// - web：应用内 WebView 登录（干净 Chrome UA + Cookie 持久化，ChatGPT/国内厂商）
 //
 // 登录态不变量（关键）：
 //   webLoggedIn 只允许显式登录确认置位（Safety 属性：打开/关闭网页绝不自动标记为已连接），
 //   用户在官网完成登录后点「✅ 我已登录」才记入；点 ✕ 仅关闭不标记。
-// 本次改版补齐：Android 返回键与 WebView 内后退（audit-8）、加载失败兜底重试/降级外部浏览器（audit-22）。
-export default function WebChatScreen({ providerId, onClose }: Props) {
+// 本容器只负责登录；日常对话在首页嵌入完成（InlineWebChat），不再于此往返跳转。
+export default function WebChatScreen({
+  providerId,
+  onClose,
+  onConfirmed,
+}: Props) {
   const insets = useSafeAreaInsets();
   const provider = getProvider(providerId);
   const { configs, updateConfig } = useProviders();
@@ -48,7 +51,7 @@ export default function WebChatScreen({ providerId, onClose }: Props) {
   const [canGoBack, setCanGoBack] = useState(false);
   const [loadError, setLoadError] = useState(false);
 
-  // 显式确认已登录：仅此路径可以置位 webLoggedIn
+  // 显式确认已登录：仅此路径可以置位 webLoggedIn；保留当前通道不强制改写
   const confirmLoggedIn = async () => {
     if (closedRef.current) return;
     closedRef.current = true;
@@ -56,12 +59,13 @@ export default function WebChatScreen({ providerId, onClose }: Props) {
     await updateConfig({
       providerId,
       enabled: true,
-      channel: provider?.preferredChannel ?? "web",
+      channel: prev?.channel ?? provider?.preferredChannel ?? "web",
       apiKey: prev?.apiKey,
       baseUrl: prev?.baseUrl,
       webLoggedIn: true,
     });
-    onClose();
+    if (onConfirmed) onConfirmed(providerId);
+    else onClose();
   };
 
   // 关闭容器（✕ 或返回键）：仅关闭，不标记已连接
@@ -187,10 +191,7 @@ export default function WebChatScreen({ providerId, onClose }: Props) {
         source={{ uri: provider.webUrl }}
         style={styles.webview}
         userAgent={CHROME_UA}
-        javaScriptEnabled
-        domStorageEnabled
-        thirdPartyCookiesEnabled
-        sharedCookiesEnabled
+        {...WEBVIEW_BASE_PROPS}
         onLoadEnd={() => setLoading(false)}
         onNavigationStateChange={onNavState}
         onError={(synthetic) => {

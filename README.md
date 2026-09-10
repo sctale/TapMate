@@ -30,7 +30,7 @@ npm run android    # 构建并安装到设备
 
 ## 下载安装
 
-正式版 APK 在 [GitHub Releases](https://github.com/sctale/TapMate/releases) 页面下载（`TapMate-v0.2.0.apk`，包名 `com.tapmate.app`）。
+正式版 APK 在 [GitHub Releases](https://github.com/sctale/TapMate/releases) 页面下载（`TapMate-v0.2.1.apk`，包名 `com.tapmate.app`）。
 
 ## 构建与发布
 
