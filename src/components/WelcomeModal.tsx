@@ -21,7 +21,7 @@ export default function WelcomeModal({ visible, onDismiss }: Props) {
       <View style={styles.overlay}>
         <View style={styles.card}>
           <Text style={styles.emoji}>👋</Text>
-          <Text style={styles.title}>欢迎来到 一点搭子</Text>
+          <Text style={styles.title}>欢迎来到 TapMate</Text>
           <Text style={styles.subtitle}>
             连模型有两条路，随时可在「配置」页调整：
           </Text>

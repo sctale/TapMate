@@ -9,6 +9,7 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
@@ -57,9 +58,11 @@ const IDLE_TIMEOUT_MS = 45000;
 export default function HomeScreen({
   inlineWebProviderId,
   onInlineWebConsumed,
+  onImmersiveChange,
 }: {
   inlineWebProviderId: string | null;
   onInlineWebConsumed: () => void;
+  onImmersiveChange: (v: boolean) => void;
 }) {
   const insets = useSafeAreaInsets();
   const { configs, loaded } = useProviders();
@@ -73,6 +76,11 @@ export default function HomeScreen({
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
   const [showJump, setShowJump] = useState(false);
   const [inlineDismissed, setInlineDismissed] = useState(false);
+  // 沉浸模式：选中模型后顶栏收起（点顶边浮出数秒），底部 dock 由 App 隐藏（底边上滑唤出）
+  const [immersive, setImmersive] = useState(false);
+  const [peek, setPeek] = useState(false);
+  const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hintShown = useRef(false);
   const sessionRef = useRef<ChatSession | null>(null);
   const nearBottomRef = useRef(true);
   const restoredRef = useRef(false);
@@ -113,6 +121,7 @@ export default function HomeScreen({
   }, []);
 
   // 默认模型：优先恢复上次使用的（audit-18），否则取第一个可用
+  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     if (!loaded || restoredRef.current || available.length === 0) return;
     restoredRef.current = true;
@@ -127,6 +136,11 @@ export default function HomeScreen({
           );
           if (hit) {
             setModel(hit);
+            // 官网模型冷启动即嵌入对话，直接进入沉浸布局
+            if (hit.modelId === "$web$") {
+              setImmersive(true);
+              onImmersiveChange(true);
+            }
             return;
           }
         }
@@ -136,6 +150,7 @@ export default function HomeScreen({
       setModel(available[0]);
     })();
   }, [loaded, available]);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   // 首启双通道说明（audit-27）
   useEffect(() => {
@@ -156,6 +171,35 @@ export default function HomeScreen({
     setStreaming(false);
   }, []);
 
+  // ===== 沉浸模式调度 =====
+  // 浮出顶栏 3.6 秒后自动收回
+  const summonChrome = useCallback(() => {
+    setPeek(true);
+    if (peekTimer.current) clearTimeout(peekTimer.current);
+    peekTimer.current = setTimeout(() => setPeek(false), 3600);
+  }, []);
+
+  // 进入沉浸：顶栏收起为浮出模式 + 请求 App 隐藏底部 dock；首次给一次手势提示
+  const enterImmersive = useCallback(() => {
+    setImmersive(true);
+    onImmersiveChange(true);
+    summonChrome();
+    if (!hintShown.current) {
+      hintShown.current = true;
+      toast.show("沉浸模式：点屏幕顶边切换模型，从最底部上滑唤出导航", 3600);
+    }
+  }, [onImmersiveChange, summonChrome, toast]);
+
+  // 顶部边缘手势：轻点或向下滑 → 浮出 chrome
+  const topEdge = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_e, g) => g.dy > 12,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: () => summonChrome(),
+    }),
+  ).current;
+
   // 登录确认 → 自动选中该厂商并进入首页嵌入对话（修复「点我已登录后无处可用」）
   // 仅在 inlineWebProviderId 注入时触发一次；其余依赖为稳定引用或刻意不参与，避免循环触发
   /* eslint-disable react-hooks/exhaustive-deps */
@@ -170,6 +214,7 @@ export default function HomeScreen({
       setMessages([]);
       sessionRef.current = null;
       setInlineDismissed(false);
+      enterImmersive();
       toast.show(
         configs.get(p.id)?.channel === "customTabs"
           ? `已连接 ${p.name}，在首页点「在浏览器打开」即可对话`
@@ -281,7 +326,7 @@ export default function HomeScreen({
     runStream(model, [...messages, userMsg], aiMsg);
   };
 
-  // 切换模型：中断在途流 + 开新会话（每个会话绑定一个模型）；点胶囊即（重新）打开嵌入对话
+  // 切换模型：中断在途流 + 开新会话（每个会话绑定一个模型）；点胶囊即（重新）打开嵌入对话，并进入沉浸模式
   const selectModel = useCallback(
     (m: ModelRef) => {
       abortStream();
@@ -291,8 +336,9 @@ export default function HomeScreen({
       sessionRef.current = null;
       setShowJump(false);
       setInlineDismissed(false);
+      enterImmersive();
     },
-    [abortStream, persistModel],
+    [abortStream, persistModel, enterImmersive],
   );
 
   // 打开历史会话：中断在途流，加载消息并切换到对应模型
@@ -312,8 +358,9 @@ export default function HomeScreen({
       persistModel(m);
       nearBottomRef.current = true;
       setShowJump(false);
+      enterImmersive();
     },
-    [abortStream, persistModel],
+    [abortStream, persistModel, enterImmersive],
   );
 
   // 新对话：显式入口，中断在途流并清空当前会话（audit-7）
@@ -384,46 +431,52 @@ export default function HomeScreen({
     return `在下方输入消息开始和 ${model?.label ?? ""} 对话`;
   }, [available.length, isWebModel, isBrowserGate, model?.label]);
 
+  // 顶栏 chrome（标题 + 新对话/历史 + 圆形模型栏）：常规态内联，沉浸态浮层复用
+  const chromeBlock = (
+    <>
+      <View style={styles.header}>
+        <Text style={styles.title}>💬 TapMate</Text>
+        <View style={styles.headerActions}>
+          <Pressable
+            style={styles.headerBtn}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            onPress={newChat}
+            accessibilityRole="button"
+            accessibilityLabel="新对话"
+          >
+            <Text style={styles.headerBtnText}>✚</Text>
+          </Pressable>
+          <Pressable
+            style={styles.headerBtn}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            onPress={() => setHistoryVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="历史会话"
+          >
+            <Text style={styles.headerBtnText}>🕘</Text>
+          </Pressable>
+        </View>
+      </View>
+      <ModelSwitcher models={available} active={model} onSelect={selectModel} />
+    </>
+  );
+
   return (
     <KeyboardAvoidingView
       style={styles.wrap}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={{ paddingTop: insets.top + SPACING.sm }}>
-        <View style={styles.header}>
-          <Text style={styles.title}>💬 一点搭子</Text>
-          <View style={styles.headerActions}>
-            <Pressable
-              style={styles.headerBtn}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              onPress={newChat}
-              accessibilityRole="button"
-              accessibilityLabel="新对话"
-            >
-              <Text style={styles.headerBtnText}>✚</Text>
-            </Pressable>
-            <Pressable
-              style={styles.headerBtn}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              onPress={() => setHistoryVisible(true)}
-              accessibilityRole="button"
-              accessibilityLabel="历史会话"
-            >
-              <Text style={styles.headerBtnText}>🕘</Text>
-            </Pressable>
-          </View>
+      {!immersive ? (
+        <View style={{ paddingTop: insets.top + SPACING.xs }}>
+          {chromeBlock}
         </View>
-        <ModelSwitcher
-          models={available}
-          active={model}
-          onSelect={selectModel}
-        />
-      </View>
+      ) : null}
       <View style={{ flex: 1 }}>
         {showInline ? (
           <InlineWebChat
             providerId={model!.providerId}
             onExit={() => setInlineDismissed(true)}
+            controlsVisible={peek}
           />
         ) : isBrowserGate ? (
           <BrowserGate providerId={model!.providerId} />
@@ -519,22 +572,7 @@ export default function HomeScreen({
             <Text style={styles.sendText}>{streaming ? "■ 停止" : "发送"}</Text>
           </Pressable>
         </View>
-      ) : (
-        <View
-          style={[
-            styles.webInputHint,
-            { paddingBottom: SPACING.sm + insets.bottom },
-          ]}
-        >
-          <Text style={styles.webInputHintText}>
-            {showInline
-              ? "💬 对话就在上方嵌入的官网页面中进行，不占用 API 费用"
-              : isBrowserGate
-                ? "💬 按上方按钮在系统浏览器中对话（Google 政策限制应用内聊天）"
-                : "💬 点上方模型胶囊，重开嵌入对话"}
-          </Text>
-        </View>
-      )}
+      ) : null}
 
       {/* 长按消息的浮层动作（audit-17） */}
       <Modal
@@ -583,6 +621,25 @@ export default function HomeScreen({
           saveSetting(SETTING_KEYS.WELCOME_SEEN, "1").catch(() => {});
         }}
       />
+
+      {/* 沉浸模式：peek 时浮出对应控件。
+          嵌入网页态 → 浮出网页右上控件条（InlineWebChat 自身）；
+          其余态 → 顶栏 chrome 以浮层重现；平时仅一条隐形顶边触发条 */}
+      {immersive ? (
+        peek && !showInline ? (
+          <View
+            style={[
+              styles.chromeOverlay,
+              { paddingTop: insets.top + SPACING.xs },
+            ]}
+          >
+            {chromeBlock}
+          </View>
+        ) : !peek ? (
+          <View style={styles.topEdge} {...topEdge.panHandlers} />
+        ) : null
+      ) : null}
+
       {toast.node}
     </KeyboardAvoidingView>
   );
@@ -634,11 +691,11 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: SPACING.lg,
   },
-  title: { fontSize: FONT_SIZE.xl, fontWeight: "800", color: COLORS.text },
+  title: { fontSize: FONT_SIZE.lg, fontWeight: "800", color: COLORS.text },
   headerActions: { flexDirection: "row", gap: SPACING.sm },
   headerBtn: {
-    width: 34,
-    height: 34,
+    width: 30,
+    height: 30,
     borderRadius: RADIUS.pill,
     backgroundColor: COLORS.surface,
     borderWidth: 1,
@@ -646,7 +703,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  headerBtnText: { fontSize: FONT_SIZE.md },
+  headerBtnText: { fontSize: FONT_SIZE.sm },
   list: { paddingVertical: SPACING.md, flexGrow: 1 },
   empty: {
     flex: 1,
@@ -721,12 +778,28 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.sm,
     fontWeight: "700",
   },
-  webInputHint: { paddingHorizontal: SPACING.lg, paddingTop: SPACING.sm },
-  webInputHintText: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.textTertiary,
-    textAlign: "center",
-    lineHeight: 17,
+  chromeOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 35,
+    backgroundColor: "rgba(248,246,243,0.97)",
+    borderBottomLeftRadius: RADIUS.lg,
+    borderBottomRightRadius: RADIUS.lg,
+    paddingBottom: SPACING.sm,
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+  },
+  topEdge: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 16,
+    zIndex: 36,
   },
   gate: {
     flex: 1,
