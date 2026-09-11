@@ -10,7 +10,7 @@ import { chatStreamGemini } from "./gemini";
 // ===== 对话引擎调度器：按厂商协议分发到对应适配器 =====
 
 // 上下文裁剪上限（字符数启发式，约对应 8k-16k token）：
-// 超长会话只保留最近的轮次，避免超出小上下文模型（如 moonshot-v1-8k）的硬限制（audit-32）
+// 超长会话只保留最近的轮次，避免超出小上下文模型（如 qwen-turbo）的硬限制（audit-32）
 const MAX_CONTEXT_CHARS = 16000;
 
 // 从最新往回累加，超限的旧消息丢弃；最后一条（当前提问）永远保留

@@ -53,10 +53,14 @@ export function chatStreamGemini(
         es.close();
         return;
       }
-      const parts: { text?: string }[] =
+      const parts: { text?: string; thought?: boolean }[] =
         json?.candidates?.[0]?.content?.parts ?? [];
       for (const part of parts) {
-        if (part.text) {
+        if (!part.text) continue;
+        if (part.thought) {
+          // 思考摘要（thought parts）
+          handlers.onReasoning?.(part.text);
+        } else {
           full += part.text;
           handlers.onDelta(part.text);
         }

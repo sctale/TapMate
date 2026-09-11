@@ -16,6 +16,7 @@ import { COLORS, FONT_SIZE, RADIUS, SPACING } from "../constants";
 import { PROVIDERS } from "../providers/registry";
 import { isProviderReady, useProviders } from "../state/ProvidersContext";
 import { testApiKey } from "../providers/apiTest";
+import { fetchModelIds } from "../providers/modelList";
 import { friendlyTestReason } from "../providers/errors";
 import { useToast } from "../components/Toast";
 import type { ChannelType, ProviderDef } from "../types";
@@ -42,13 +43,37 @@ const CHANNEL_DESC: Record<ChannelType, string> = {
 // 配置页：厂商列表 + 通道选择 + API Key 管理
 export default function ConfigScreen({ onOpenWeb }: Props) {
   const insets = useSafeAreaInsets();
-  const { configs, loaded, updateConfig, removeConfig } = useProviders();
+  const {
+    configs,
+    loaded,
+    updateConfig,
+    removeConfig,
+    dynamicModels,
+    syncModelIds,
+  } = useProviders();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [keyDraft, setKeyDraft] = useState("");
   const [baseDraft, setBaseDraft] = useState("");
   const [showKey, setShowKey] = useState(false); // Key 明密文切换（audit-14）
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const toast = useToast(32);
+
+  // 拉取该厂商账号真实模型清单（v0.3.0）：成功写动态列表，失败提示回落默认
+  const syncModels = async (p: ProviderDef) => {
+    const cfg = configs.get(p.id);
+    if (!cfg?.apiKey) return toast.show("请先保存 API Key");
+    setSyncing(true);
+    const baseUrl = cfg.baseUrl || p.apiBaseUrl || "";
+    const ids = await fetchModelIds(p, cfg.apiKey, baseUrl);
+    setSyncing(false);
+    if (ids?.length) {
+      await syncModelIds(p.id, ids);
+      toast.show(`✅ ${p.name}：已同步 ${ids.length} 个模型`);
+    } else {
+      toast.show(`❌ ${p.name}：未取到模型列表，暂用内置默认`);
+    }
+  };
 
   // 切换接入通道
   const switchChannel = async (p: ProviderDef, channel: ChannelType) => {
@@ -81,7 +106,14 @@ export default function ConfigScreen({ onOpenWeb }: Props) {
         baseUrl,
       });
       setKeyDraft("");
-      toast.show(`✅ ${p.name} 连接成功`);
+      const ids = await fetchModelIds(p, key, baseUrl).catch(() => null);
+      if (ids?.length) await syncModelIds(p.id, ids);
+      toast.show(
+        ids?.length
+          ? `✅ ${p.name} 连接成功 · 已同步 ${ids.length} 个模型`
+          : `✅ ${p.name} 连接成功`,
+        3000,
+      );
     } else {
       // 区分超时 / 网络 / 鉴权 / 其他状态码，不再笼统「检查 Key 与地址」（audit-25）
       toast.show(`❌ ${friendlyTestReason(res.reason ?? "network")}`, 3500);
@@ -137,6 +169,7 @@ export default function ConfigScreen({ onOpenWeb }: Props) {
           const ready = isProviderReady(cfg);
           const expanded = expandedId === p.id;
           const channel: ChannelType = cfg?.channel ?? p.preferredChannel;
+          const liveCount = dynamicModels.get(p.id)?.length ?? 0;
           return (
             <View key={p.id} style={styles.card}>
               <Pressable
@@ -259,6 +292,37 @@ export default function ConfigScreen({ onOpenWeb }: Props) {
                             🔗 点此前往获取 {p.name} 的 API Key
                           </Text>
                         </Pressable>
+                      ) : null}
+                      {/* 模型清单来源（v0.3.0 动态模型）：Key 有效即可拉取账号真实列表 */}
+                      {cfg?.apiKey ? (
+                        <View style={styles.modelRow}>
+                          <Text style={styles.hint}>
+                            {liveCount
+                              ? `模型清单：账号动态 ${liveCount} 个`
+                              : `模型清单：内置默认 ${p.defaultModels.length} 个`}
+                          </Text>
+                          <View style={styles.modelActions}>
+                            <Pressable
+                              onPress={() => syncModels(p)}
+                              disabled={syncing}
+                            >
+                              <Text style={styles.docsLink}>
+                                {syncing
+                                  ? "同步中…"
+                                  : liveCount
+                                    ? "🔄 重新同步"
+                                    : "📥 同步模型清单"}
+                              </Text>
+                            </Pressable>
+                            {liveCount ? (
+                              <Pressable
+                                onPress={() => syncModelIds(p.id, null)}
+                              >
+                                <Text style={styles.docsLink}>恢复默认</Text>
+                              </Pressable>
+                            ) : null}
+                          </View>
+                        </View>
                       ) : null}
                     </View>
                   ) : (
@@ -390,6 +454,18 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.xs,
     color: COLORS.accentDark,
     fontWeight: "600",
+  },
+  modelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: SPACING.sm,
+    flexWrap: "wrap",
+  },
+  modelActions: {
+    flexDirection: "row",
+    gap: SPACING.md,
+    alignItems: "center",
   },
   unbindBtn: { paddingVertical: SPACING.xs, marginTop: SPACING.xs },
   unbindText: {

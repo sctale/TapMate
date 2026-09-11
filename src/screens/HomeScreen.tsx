@@ -12,6 +12,7 @@ import {
   PanResponder,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -22,6 +23,7 @@ import * as WebBrowser from "expo-web-browser";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   COLORS,
+  COMPARE,
   FONT_SIZE,
   RADIUS,
   SETTING_KEYS,
@@ -30,6 +32,7 @@ import {
 } from "../constants";
 import MessageBubble from "../components/MessageBubble";
 import ModelSwitcher from "../components/ModelSwitcher";
+import CompareSheet from "../components/CompareSheet";
 import SessionHistory from "../components/SessionHistory";
 import WelcomeModal from "../components/WelcomeModal";
 import InlineWebChat from "../components/InlineWebChat";
@@ -52,9 +55,8 @@ import type { ChatMessage, ChatSession, ModelRef } from "../types";
 // 流式空闲超时：连续 45 秒没有任何增量视为连接悬挂（audit-23）
 const IDLE_TIMEOUT_MS = 45000;
 
-// 首页对话页：模型切换 + 流式对话（可停止）+ 本地持久化 + 历史会话
-// 官网通道（web）模型：官网会话直接嵌入首页内容区（InlineWebChat），聊天无需跳转第二个页面；
-// customTabs 通道（Google 政策禁止应用内对话）：首页展示浏览器引导卡片。
+// 首页对话页：模型切换 + 流式对话（可停止/思考过程）+ ⚖️ 并发对比 + 本地持久化 + 历史会话
+// 官网通道（web）模型：官网会话直接嵌入首页内容区；customTabs：浏览器引导卡片
 export default function HomeScreen({
   inlineWebProviderId,
   onInlineWebConsumed,
@@ -65,7 +67,7 @@ export default function HomeScreen({
   onImmersiveChange: (v: boolean) => void;
 }) {
   const insets = useSafeAreaInsets();
-  const { configs, loaded } = useProviders();
+  const { configs, loaded, dynamicModels } = useProviders();
   const toast = useToast(96);
   const [model, setModel] = useState<ModelRef | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -76,19 +78,22 @@ export default function HomeScreen({
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
   const [showJump, setShowJump] = useState(false);
   const [inlineDismissed, setInlineDismissed] = useState(false);
-  // 沉浸模式：选中模型后顶栏收起（点顶边浮出数秒），底部 dock 由 App 隐藏（底边上滑唤出）
+  // 沉浸模式：选中模型后顶栏收起（点顶边浮出），底部 dock 由 App 隐藏（底边上滑唤出）
   const [immersive, setImmersive] = useState(false);
   const [peek, setPeek] = useState(false);
   const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hintShown = useRef(false);
+  // 并发对比模式（v0.3.0）
+  const [compareOn, setCompareOn] = useState(false);
+  const [compareSel, setCompareSel] = useState<ModelRef[]>([]);
+  const [compareSheet, setCompareSheet] = useState(false);
   const sessionRef = useRef<ChatSession | null>(null);
   const nearBottomRef = useRef(true);
   const restoredRef = useRef(false);
   const listRef = useRef<FlatList>(null);
-
-  // 在途流句柄：仅保留「停止」入口；缓冲/定时器/收尾标志均为闭包私有（audit-5/23），
-  // 停止后立刻重发时，旧流的陈旧回调不会误伤新流
-  const streamHandle = useRef<{ stop: () => void } | null>(null);
+  // 活跃流注册表：aiMsgId → stop。单流与对比 N 流统一走这里；
+  // 每条流的 buffer/定时器/收尾标志全部闭包私有（v0.2.0 竞态约定）
+  const streams = useRef(new Map<string, { stop: () => void }>());
 
   const isWebModel = model?.modelId === "$web$";
   const activeChannel = model
@@ -97,15 +102,17 @@ export default function HomeScreen({
   const isInlineWeb = isWebModel && activeChannel === "web"; // 应用内嵌入模式
   const isBrowserGate = isWebModel && activeChannel === "customTabs"; // 浏览器模式（Google 政策）
   const showInline = isInlineWeb && !inlineDismissed;
+  const compareActive = compareOn && !isWebModel;
 
-  // 可用模型列表：已配置厂商 × 默认模型；api 通道列具体模型，web/customTabs 通道列"官网对话"入口
+  // 可用模型：动态清单（Key 验证后同步）优先，回落注册表默认；web/customTabs 列"官网对话"入口
   const available = useMemo<ModelRef[]>(() => {
     const list: ModelRef[] = [];
     for (const p of PROVIDERS) {
       const cfg = configs.get(p.id);
       if (!isProviderReady(cfg)) continue;
       if (cfg!.channel === "api") {
-        for (const m of p.defaultModels) {
+        const live = dynamicModels.get(p.id);
+        for (const m of live?.length ? live : p.defaultModels) {
           list.push({ providerId: p.id, modelId: m, label: m });
         }
       } else {
@@ -113,11 +120,28 @@ export default function HomeScreen({
       }
     }
     return list;
-  }, [configs]);
+  }, [configs, dynamicModels]);
 
-  // 初始化数据库
+  const apiAvailable = useMemo(
+    () => available.filter((m) => m.modelId !== "$web$"),
+    [available],
+  );
+
+  // 初始化数据库 + 恢复上次对比选择
   useEffect(() => {
-    initChatDB();
+    initChatDB().catch(() => {});
+    loadSetting(SETTING_KEYS.COMPARE_MODELS)
+      .then((raw) => {
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw) as ModelRef[];
+            if (Array.isArray(parsed)) setCompareSel(parsed.slice(0, 4));
+          } catch {
+            /* 损坏则忽略 */
+          }
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // 默认模型：优先恢复上次使用的（audit-18），否则取第一个可用
@@ -164,22 +188,20 @@ export default function HomeScreen({
     saveSetting(SETTING_KEYS.LAST_MODEL, JSON.stringify(m)).catch(() => {});
   }, []);
 
-  // 用户主动停止 / 切换场景统一收尾：中断在途流并保留已生成的部分内容（audit-5/6）
-  const abortStream = useCallback(() => {
-    streamHandle.current?.stop();
-    streamHandle.current = null;
+  // 中断全部在途流（停止/切换/新会话统一收尾，保留半截内容）
+  const abortStreams = useCallback(() => {
+    streams.current.forEach((s) => s.stop());
+    streams.current.clear();
     setStreaming(false);
   }, []);
 
   // ===== 沉浸模式调度 =====
-  // 浮出顶栏 3.6 秒后自动收回
   const summonChrome = useCallback(() => {
     setPeek(true);
     if (peekTimer.current) clearTimeout(peekTimer.current);
     peekTimer.current = setTimeout(() => setPeek(false), 3600);
   }, []);
 
-  // 进入沉浸：顶栏收起为浮出模式 + 请求 App 隐藏底部 dock；首次给一次手势提示
   const enterImmersive = useCallback(() => {
     setImmersive(true);
     onImmersiveChange(true);
@@ -201,14 +223,14 @@ export default function HomeScreen({
   ).current;
 
   // 登录确认 → 自动选中该厂商并进入首页嵌入对话（修复「点我已登录后无处可用」）
-  // 仅在 inlineWebProviderId 注入时触发一次；其余依赖为稳定引用或刻意不参与，避免循环触发
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     if (!inlineWebProviderId || !loaded) return;
     const p = getProvider(inlineWebProviderId);
     if (p) {
       const m: ModelRef = { providerId: p.id, modelId: "$web$", label: p.name };
-      abortStream();
+      abortStreams();
+      setCompareOn(false);
       setModel(m);
       persistModel(m);
       setMessages([]);
@@ -225,14 +247,23 @@ export default function HomeScreen({
   }, [inlineWebProviderId, loaded]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
-  // 发起一次流式对话：节流渲染 + 空闲超时 + 完成/失败回填（均为闭包私有状态，新旧流互不干扰）
-  const runStream = useCallback(
+  // 发起一条流式回答：buffer/定时器/幂等收尾全部闭包私有，多流并行互不干扰
+  const startStreamFor = useCallback(
     (target: ModelRef, context: ChatMessage[], aiMsg: ChatMessage) => {
-      const provider = getProvider(target.providerId)!;
-      const cfg = configs.get(target.providerId)!;
+      const provider = getProvider(target.providerId);
+      const cfg = configs.get(target.providerId);
+      if (!provider || !cfg?.apiKey) {
+        const missing = "请先在配置页填写 API Key";
+        setMessages((prev) =>
+          prev.map((m) => (m.id === aiMsg.id ? { ...m, error: missing } : m)),
+        );
+        updateMessage(aiMsg.id, "", missing).catch(() => {});
+        return;
+      }
       setStreaming(true);
 
       let buffer = "";
+      let reasoning = "";
       let flushT: ReturnType<typeof setTimeout> | null = null;
       let idleT: ReturnType<typeof setTimeout> | null = null;
       let abort: (() => void) | null = null;
@@ -240,10 +271,22 @@ export default function HomeScreen({
 
       const render = () => {
         setMessages((prev) =>
-          prev.map((m) => (m.id === aiMsg.id ? { ...m, content: buffer } : m)),
+          prev.map((m) =>
+            m.id === aiMsg.id
+              ? { ...m, content: buffer, reasoning: reasoning || undefined }
+              : m,
+          ),
         );
       };
-      // 幂等收尾：清定时器、断连接、落库；errMsg 存在则同时写入错误态
+      const scheduleFlush = () => {
+        if (!flushT) {
+          flushT = setTimeout(() => {
+            flushT = null;
+            render();
+          }, 120);
+        }
+      };
+      // 幂等收尾：清定时器、断连接、从注册表除名；全部流结束才复位 streaming
       const settle = async (errMsg?: string) => {
         if (settled) return;
         settled = true;
@@ -251,16 +294,28 @@ export default function HomeScreen({
         if (idleT) clearTimeout(idleT);
         abort?.();
         abort = null;
-        setStreaming(false);
-        streamHandle.current = null;
+        streams.current.delete(aiMsg.id);
+        if (streams.current.size === 0) setStreaming(false);
         if (errMsg) {
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === aiMsg.id ? { ...m, content: buffer, error: errMsg } : m,
+              m.id === aiMsg.id
+                ? {
+                    ...m,
+                    content: buffer,
+                    reasoning: reasoning || undefined,
+                    error: errMsg,
+                  }
+                : m,
             ),
           );
         }
-        await updateMessage(aiMsg.id, buffer, errMsg).catch(() => {});
+        await updateMessage(
+          aiMsg.id,
+          buffer,
+          errMsg,
+          reasoning || undefined,
+        ).catch(() => {});
       };
       const resetIdle = () => {
         if (idleT) clearTimeout(idleT);
@@ -272,12 +327,12 @@ export default function HomeScreen({
         onDelta: (delta) => {
           buffer += delta;
           resetIdle();
-          if (!flushT) {
-            flushT = setTimeout(() => {
-              flushT = null;
-              render();
-            }, 120);
-          }
+          scheduleFlush();
+        },
+        onReasoning: (r) => {
+          reasoning += r;
+          resetIdle();
+          scheduleFlush();
         },
         onDone: () => {
           render();
@@ -289,47 +344,80 @@ export default function HomeScreen({
         },
       });
 
-      // 外部停止入口：按正常完成收尾（保留半截内容，不标错误）
-      streamHandle.current = { stop: () => settle() };
+      streams.current.set(aiMsg.id, { stop: () => settle() });
     },
     [configs],
   );
 
-  // 发送消息
+  // 某模型的上下文：历史用户消息 + 该模型自己的既往回答（对比模式各流互不污染）
+  const contextFor = useCallback(
+    (
+      history: ChatMessage[],
+      t: ModelRef,
+      userMsg: ChatMessage,
+    ): ChatMessage[] => {
+      const mine = history.filter(
+        (m) =>
+          m.role === "user" ||
+          (m.role === "assistant" &&
+            m.modelId === t.modelId &&
+            (m.providerId ?? t.providerId) === t.providerId),
+      );
+      return [...mine, userMsg];
+    },
+    [],
+  );
+
+  // 发送消息：单模型 1 条回答；对比模式为每个所选模型各起一流
   const send = async () => {
     const text = input.trim();
-    if (!text || !model || streaming) return;
+    if (!text || streaming) return;
+    if (isWebModel) return; // 防御：官网模型不渲染原生输入区
 
-    // 官网通道模型不渲染原生输入区（对话在嵌入官网/浏览器内进行），此处仅防御
-    if (model.modelId === "$web$") return;
+    const targets = compareActive ? compareSel : model ? [model] : [];
+    if (compareActive && targets.length < 2) {
+      setCompareSheet(true);
+      return;
+    }
+    if (!targets.length) return;
 
+    const now = Date.now();
+    if (!sessionRef.current) {
+      const head = targets[0];
+      sessionRef.current = await createSession(
+        compareActive ? COMPARE : head.providerId,
+        compareActive ? COMPARE : head.modelId,
+      );
+    }
     const userMsg: ChatMessage = {
       id: genUuid(),
       role: "user",
       content: text,
-      createdAt: Date.now(),
+      createdAt: now,
     };
-    const aiMsg: ChatMessage = {
+    const aiMsgs: ChatMessage[] = targets.map((t, i) => ({
       id: genUuid(),
       role: "assistant",
       content: "",
-      createdAt: Date.now() + 1,
-      modelId: model.modelId,
-    };
-    if (!sessionRef.current) {
-      sessionRef.current = await createSession(model.providerId, model.modelId);
-    }
+      createdAt: now + i + 1,
+      modelId: t.modelId,
+      providerId: t.providerId,
+    }));
     await addMessage(sessionRef.current.id, userMsg);
-    await addMessage(sessionRef.current.id, aiMsg);
+    for (const a of aiMsgs) await addMessage(sessionRef.current.id, a);
     setInput("");
-    setMessages((prev) => [...prev, userMsg, aiMsg]);
-    runStream(model, [...messages, userMsg], aiMsg);
+    const history = messages;
+    setMessages((prev) => [...prev, userMsg, ...aiMsgs]);
+    aiMsgs.forEach((a, i) =>
+      startStreamFor(targets[i], contextFor(history, targets[i], userMsg), a),
+    );
   };
 
-  // 切换模型：中断在途流 + 开新会话（每个会话绑定一个模型）；点胶囊即（重新）打开嵌入对话，并进入沉浸模式
+  // 切换模型：中断在途流 + 退出对比 + 开新会话；点胶囊即（重新）打开嵌入对话
   const selectModel = useCallback(
     (m: ModelRef) => {
-      abortStream();
+      abortStreams();
+      setCompareOn(false);
       setModel(m);
       persistModel(m);
       setMessages([]);
@@ -338,44 +426,114 @@ export default function HomeScreen({
       setInlineDismissed(false);
       enterImmersive();
     },
-    [abortStream, persistModel, enterImmersive],
+    [abortStreams, persistModel, enterImmersive],
   );
 
-  // 打开历史会话：中断在途流，加载消息并切换到对应模型
+  // 对比模式确认：选中 2-4 模型进入对比会话
+  const confirmCompare = useCallback(
+    (sel: ModelRef[]) => {
+      abortStreams();
+      setCompareSel(sel);
+      saveSetting(SETTING_KEYS.COMPARE_MODELS, JSON.stringify(sel)).catch(
+        () => {},
+      );
+      setCompareSheet(false);
+      setCompareOn(true);
+      setModel({ providerId: COMPARE, modelId: COMPARE, label: "模型对比" });
+      setMessages([]);
+      sessionRef.current = null;
+      setShowJump(false);
+      setInlineDismissed(true);
+      enterImmersive();
+      toast.show(`⚖️ 对比模式：${sel.length} 个模型同时回答`);
+    },
+    [abortStreams, enterImmersive, toast],
+  );
+
+  // 开关对比模式
+  const toggleCompare = useCallback(() => {
+    if (compareActive) {
+      setCompareOn(false);
+      // 对比虚拟 model 落回真实模型，否则单发路径拿不到 provider
+      if (model?.modelId === COMPARE) {
+        const back = compareSel[0] ?? apiAvailable[0] ?? null;
+        setModel(back);
+        if (back) persistModel(back);
+      }
+      toast.show("已退出对比模式");
+    } else {
+      if (apiAvailable.length < 2) {
+        toast.show("需至少 2 个 API 通道模型，先去「配置」页连接");
+        return;
+      }
+      setCompareSheet(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    compareActive,
+    apiAvailable.length,
+    model?.modelId,
+    compareSel,
+    persistModel,
+    toast,
+  ]);
+
+  // 打开历史会话：识别对比会话并恢复所选模型
   const openSession = useCallback(
     async (sess: ChatSession) => {
-      abortStream();
+      abortStreams();
       setHistoryVisible(false);
       const msgs = await listMessages(sess.id);
       sessionRef.current = sess;
       setMessages(msgs);
-      const m: ModelRef = {
-        providerId: sess.providerId,
-        modelId: sess.modelId,
-        label: sess.modelId,
-      };
-      setModel(m);
-      persistModel(m);
+      if (sess.providerId === COMPARE) {
+        const uniq = new Map<string, ModelRef>();
+        for (const m of msgs) {
+          if (m.role === "assistant" && m.modelId && m.providerId) {
+            const key = `${m.providerId}:${m.modelId}`;
+            if (!uniq.has(key))
+              uniq.set(key, {
+                providerId: m.providerId,
+                modelId: m.modelId,
+                label: m.modelId,
+              });
+          }
+        }
+        setCompareSel([...uniq.values()].slice(0, 4));
+        setCompareOn(true);
+        setModel({ providerId: COMPARE, modelId: COMPARE, label: "模型对比" });
+        setInlineDismissed(true);
+      } else {
+        setCompareOn(false);
+        const m: ModelRef = {
+          providerId: sess.providerId,
+          modelId: sess.modelId,
+          label: sess.modelId,
+        };
+        setModel(m);
+        persistModel(m);
+        if (sess.modelId === "$web$") setInlineDismissed(false);
+      }
       nearBottomRef.current = true;
       setShowJump(false);
       enterImmersive();
     },
-    [abortStream, persistModel, enterImmersive],
+    [abortStreams, persistModel, enterImmersive],
   );
 
-  // 新对话：显式入口，中断在途流并清空当前会话（audit-7）
+  // 新对话：中断在途流并清空当前会话（audit-7）
   const newChat = useCallback(() => {
-    abortStream();
+    abortStreams();
     sessionRef.current = null;
     setMessages([]);
     setShowJump(false);
     toast.show("已开始新对话");
-  }, [abortStream, toast]);
+  }, [abortStreams, toast]);
 
-  // 重新生成 / 重试：删除最后一条用户消息之后的回答，基于同上下文重发（audit-17/21）
+  // 重新生成（旧单模型数据兜底）：删除最后一条用户消息后的回答重发
   const regenerate = async () => {
-    if (streaming || !model || model.modelId === "$web$" || !sessionRef.current)
-      return;
+    setActionMsg(null);
+    if (streaming || !model || isWebModel || !sessionRef.current) return;
     let idx = -1;
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === "user") {
@@ -392,12 +550,42 @@ export default function HomeScreen({
       content: "",
       createdAt: Date.now(),
       modelId: model.modelId,
+      providerId: model.providerId,
     };
     await deleteAssistantAfter(sessionRef.current.id, lastUser.createdAt);
     await addMessage(sessionRef.current.id, aiMsg);
-    setActionMsg(null);
     setMessages([...context, aiMsg]);
-    runStream(model, context, aiMsg);
+    startStreamFor(model, context, aiMsg);
+  };
+
+  // 单条回答原位重试：只重跑该模型（对比模式其它模型结果保留；单模型体验也更稳）
+  const retryOne = async (target: ChatMessage) => {
+    setActionMsg(null);
+    if (streaming || !target.modelId || !target.providerId) return;
+    const t: ModelRef = {
+      providerId: target.providerId,
+      modelId: target.modelId,
+      label: target.modelId,
+    };
+    const idx = messages.findIndex((m) => m.id === target.id);
+    if (idx < 0) return;
+    let u = idx - 1;
+    while (u >= 0 && messages[u].role !== "user") u--;
+    if (u < 0) return;
+    const context = contextFor(
+      messages.slice(0, idx).filter((m) => m.id !== target.id),
+      t,
+      messages[u],
+    );
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === target.id
+          ? { ...m, content: "", reasoning: undefined, error: undefined }
+          : m,
+      ),
+    );
+    await updateMessage(target.id, "", undefined, undefined).catch(() => {});
+    startStreamFor(t, context, { ...target, content: "", error: undefined });
   };
 
   const copyMessage = async (m: ChatMessage) => {
@@ -424,19 +612,43 @@ export default function HomeScreen({
 
   const emptyText = useMemo(() => {
     if (available.length === 0) return "先到「配置」页连接一个模型";
+    if (compareActive)
+      return "⚖️ 对比模式：一个问题同时发给所选模型，回答并排看";
     if (isBrowserGate)
       return `${model?.label ?? ""} 的对话在系统浏览器中进行（Google 政策），下方一键打开`;
     if (isWebModel)
       return `点上方模型胶囊，${model?.label ?? ""} 的对话会直接嵌入在这里，无需跳转`;
     return `在下方输入消息开始和 ${model?.label ?? ""} 对话`;
-  }, [available.length, isWebModel, isBrowserGate, model?.label]);
+  }, [
+    available.length,
+    compareActive,
+    isBrowserGate,
+    isWebModel,
+    model?.label,
+  ]);
 
-  // 顶栏 chrome（标题 + 新对话/历史 + 圆形模型栏）：常规态内联，沉浸态浮层复用
+  // 顶栏 chrome（标题 + 对比/新对话/历史 + 圆形模型栏）：常规态内联，沉浸态浮层复用
   const chromeBlock = (
     <>
       <View style={styles.header}>
         <Text style={styles.title}>💬 TapMate</Text>
         <View style={styles.headerActions}>
+          <Pressable
+            style={[styles.headerBtn, compareActive && styles.headerBtnOn]}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            onPress={toggleCompare}
+            accessibilityRole="button"
+            accessibilityLabel="对比模式"
+          >
+            <Text
+              style={[
+                styles.headerBtnText,
+                compareActive && styles.headerBtnTextOn,
+              ]}
+            >
+              ⚖️
+            </Text>
+          </Pressable>
           <Pressable
             style={styles.headerBtn}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -457,7 +669,43 @@ export default function HomeScreen({
           </Pressable>
         </View>
       </View>
-      <ModelSwitcher models={available} active={model} onSelect={selectModel} />
+      {compareActive ? (
+        // 对比模式：已选模型胶囊行 + 「改选」入口
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.compareRow}
+        >
+          {compareSel.map((m) => {
+            const p = getProvider(m.providerId);
+            return (
+              <View key={`${m.providerId}:${m.modelId}`} style={styles.chip}>
+                <View
+                  style={[
+                    styles.dot,
+                    { backgroundColor: p?.color ?? COLORS.accent },
+                  ]}
+                />
+                <Text style={styles.chipLabel} numberOfLines={1}>
+                  {m.label}
+                </Text>
+              </View>
+            );
+          })}
+          <Pressable
+            style={styles.chipEdit}
+            onPress={() => setCompareSheet(true)}
+          >
+            <Text style={styles.chipEditText}>改选</Text>
+          </Pressable>
+        </ScrollView>
+      ) : (
+        <ModelSwitcher
+          models={available}
+          active={model}
+          onSelect={selectModel}
+        />
+      )}
     </>
   );
 
@@ -472,13 +720,13 @@ export default function HomeScreen({
         </View>
       ) : null}
       <View style={{ flex: 1 }}>
-        {showInline ? (
+        {showInline && !compareActive ? (
           <InlineWebChat
             providerId={model!.providerId}
             onExit={() => setInlineDismissed(true)}
             controlsVisible={peek}
           />
-        ) : isBrowserGate ? (
+        ) : isBrowserGate && !compareActive ? (
           <BrowserGate providerId={model!.providerId} />
         ) : (
           <>
@@ -486,13 +734,16 @@ export default function HomeScreen({
               ref={listRef}
               data={messages}
               keyExtractor={(m) => m.id}
-              renderItem={({ item, index }) => (
+              renderItem={({ item }) => (
                 <MessageBubble
                   msg={item}
                   thinking={
-                    streaming &&
-                    index === messages.length - 1 &&
-                    item.role === "assistant"
+                    item.role === "assistant" &&
+                    !item.content &&
+                    streams.current.has(item.id)
+                  }
+                  tagged={
+                    compareActive || sessionRef.current?.providerId === COMPARE
                   }
                   onLongPress={setActionMsg}
                 />
@@ -506,9 +757,11 @@ export default function HomeScreen({
               }}
               ListEmptyComponent={
                 <View style={styles.empty}>
-                  <Text style={styles.emptyEmoji}>🤖</Text>
+                  <Text style={styles.emptyEmoji}>
+                    {compareActive ? "⚖️" : "🤖"}
+                  </Text>
                   <Text style={styles.emptyText}>{emptyText}</Text>
-                  {isWebModel ? (
+                  {isWebModel && !compareActive ? (
                     <Pressable
                       style={styles.openInlineBtn}
                       onPress={() => setInlineDismissed(false)}
@@ -545,7 +798,11 @@ export default function HomeScreen({
         >
           <TextInput
             style={styles.input}
-            placeholder="输入消息…"
+            placeholder={
+              compareActive
+                ? `一个问题，同时发给 ${compareSel.length || "?"} 个模型…`
+                : "输入消息…"
+            }
             placeholderTextColor={COLORS.textTertiary}
             value={input}
             onChangeText={setInput}
@@ -557,22 +814,41 @@ export default function HomeScreen({
             style={[
               styles.sendBtn,
               streaming && styles.sendBtnStop,
-              !streaming && (!input.trim() || !model) && styles.sendBtnOff,
+              !streaming &&
+                (!input.trim() || (!model && !compareActive)) &&
+                styles.sendBtnOff,
             ]}
             onPress={
               streaming
                 ? () => {
-                    abortStream();
+                    abortStreams();
                     toast.show("已停止生成");
                   }
                 : send
             }
-            disabled={!streaming && (!input.trim() || !model)}
+            disabled={
+              !streaming && (!input.trim() || (!model && !compareActive))
+            }
           >
             <Text style={styles.sendText}>{streaming ? "■ 停止" : "发送"}</Text>
           </Pressable>
         </View>
-      ) : null}
+      ) : (
+        <View
+          style={[
+            styles.webHint,
+            { paddingBottom: SPACING.sm + insets.bottom },
+          ]}
+        >
+          <Text style={styles.webHintText}>
+            {showInline
+              ? "💬 对话就在上方嵌入的官网页面中进行，不占用 API 费用"
+              : isBrowserGate
+                ? "💬 按上方按钮在系统浏览器中对话（Google 政策限制应用内聊天）"
+                : "💬 点上方模型胶囊，重开嵌入对话"}
+          </Text>
+        </View>
+      )}
 
       {/* 长按消息的浮层动作（audit-17） */}
       <Modal
@@ -593,9 +869,18 @@ export default function HomeScreen({
             !streaming &&
             !isWebModel &&
             sessionRef.current ? (
-              <Pressable style={styles.sheetBtn} onPress={regenerate}>
+              <Pressable
+                style={styles.sheetBtn}
+                onPress={() =>
+                  actionMsg?.providerId ? retryOne(actionMsg) : regenerate()
+                }
+              >
                 <Text style={styles.sheetBtnText}>
-                  {actionMsg?.error ? "🔁 重试这条回答" : "🔁 重新生成"}
+                  {actionMsg?.error
+                    ? "🔁 重试这条回答"
+                    : compareActive
+                      ? "🔁 重新生成这条"
+                      : "🔁 重新生成"}
                 </Text>
               </Pressable>
             ) : null}
@@ -608,6 +893,15 @@ export default function HomeScreen({
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* 对比模式模型多选（v0.3.0） */}
+      <CompareSheet
+        visible={compareSheet}
+        models={apiAvailable}
+        initial={compareSel}
+        onCancel={() => setCompareSheet(false)}
+        onConfirm={confirmCompare}
+      />
 
       <SessionHistory
         visible={historyVisible}
@@ -622,9 +916,7 @@ export default function HomeScreen({
         }}
       />
 
-      {/* 沉浸模式：peek 时浮出对应控件。
-          嵌入网页态 → 浮出网页右上控件条（InlineWebChat 自身）；
-          其余态 → 顶栏 chrome 以浮层重现；平时仅一条隐形顶边触发条 */}
+      {/* 沉浸模式：peek 时浮出对应控件。嵌入网页态 → 网页右上控件条；其余 → 顶栏浮层 */}
       {immersive ? (
         peek && !showInline ? (
           <View
@@ -703,7 +995,46 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  headerBtnOn: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
   headerBtnText: { fontSize: FONT_SIZE.sm },
+  headerBtnTextOn: { color: COLORS.white },
+  compareRow: {
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.xs,
+    gap: SPACING.sm,
+    alignItems: "center",
+  },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 6,
+    borderRadius: RADIUS.pill,
+    backgroundColor: COLORS.accentSoft,
+    borderWidth: 1,
+    borderColor: COLORS.accent,
+  },
+  dot: { width: 7, height: 7, borderRadius: 4 },
+  chipLabel: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.accentDark,
+    fontWeight: "700",
+  },
+  chipEdit: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 6,
+    borderRadius: RADIUS.pill,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+  },
+  chipEditText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+    fontWeight: "600",
+  },
   list: { paddingVertical: SPACING.md, flexGrow: 1 },
   empty: {
     flex: 1,
@@ -719,6 +1050,17 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingHorizontal: SPACING.xl,
     lineHeight: 20,
+  },
+  openInlineBtn: {
+    backgroundColor: COLORS.accent,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: 11,
+  },
+  openInlineBtnText: {
+    color: COLORS.white,
+    fontSize: FONT_SIZE.sm,
+    fontWeight: "700",
   },
   inputBar: {
     flexDirection: "row",
@@ -747,6 +1089,13 @@ const styles = StyleSheet.create({
   sendBtnStop: { backgroundColor: COLORS.danger },
   sendBtnOff: { opacity: 0.4 },
   sendText: { color: COLORS.white, fontSize: FONT_SIZE.sm, fontWeight: "700" },
+  webHint: { paddingHorizontal: SPACING.lg, paddingTop: SPACING.sm },
+  webHintText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textTertiary,
+    textAlign: "center",
+    lineHeight: 17,
+  },
   jumpBtn: {
     position: "absolute",
     bottom: SPACING.md,
@@ -765,17 +1114,6 @@ const styles = StyleSheet.create({
   jumpText: {
     fontSize: FONT_SIZE.sm,
     color: COLORS.accentDark,
-    fontWeight: "700",
-  },
-  openInlineBtn: {
-    backgroundColor: COLORS.accent,
-    borderRadius: RADIUS.md,
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: 11,
-  },
-  openInlineBtnText: {
-    color: COLORS.white,
-    fontSize: FONT_SIZE.sm,
     fontWeight: "700",
   },
   chromeOverlay: {

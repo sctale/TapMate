@@ -24,7 +24,12 @@ describe("trimContext（audit-32 上下文裁剪）", () => {
 
   it("超长对话从旧往新丢弃，最新消息永远保留", () => {
     const big = "x".repeat(8000);
-    const list = [msg("user", big), msg("assistant", big), msg("user", big), msg("user", "最新问题")];
+    const list = [
+      msg("user", big),
+      msg("assistant", big),
+      msg("user", big),
+      msg("user", "最新问题"),
+    ];
     const trimmed = trimContext(list);
     expect(trimmed.length).toBeLessThan(list.length);
     expect(trimmed[trimmed.length - 1].content).toBe("最新问题");
@@ -43,11 +48,15 @@ describe("friendlyStreamError（audit-24 报错人话化）", () => {
 
   it("429 / 额度类 → 频率与额度提示", () => {
     expect(friendlyStreamError({ status: 429 })).toContain("额度");
-    expect(friendlyStreamError({ raw: "insufficient_quota" })).toContain("额度");
+    expect(friendlyStreamError({ raw: "insufficient_quota" })).toContain(
+      "额度",
+    );
   });
 
   it("上下文超限 → 引导开新会话", () => {
-    expect(friendlyStreamError({ raw: "maximum context length exceeded" })).toContain("新会话");
+    expect(
+      friendlyStreamError({ raw: "maximum context length exceeded" }),
+    ).toContain("新会话");
   });
 
   it("网络错误 → 检查网络或代理", () => {

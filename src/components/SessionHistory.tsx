@@ -9,7 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { COLORS, FONT_SIZE, RADIUS, SPACING } from "../constants";
+import { COLORS, COMPARE, FONT_SIZE, RADIUS, SPACING } from "../constants";
 import {
   deleteSession,
   listSessions,
@@ -117,6 +117,7 @@ export default function SessionHistory({ visible, onClose, onOpen }: Props) {
                   <Text style={styles.groupLabel}>{g.label}</Text>
                   {g.items.map((s) => {
                     const p = getProvider(s.providerId);
+                    const isCmp = s.providerId === COMPARE;
                     return (
                       <View key={s.id} style={styles.row}>
                         <Pressable
@@ -124,15 +125,16 @@ export default function SessionHistory({ visible, onClose, onOpen }: Props) {
                           onPress={() => onOpen(s)}
                         >
                           <Text style={styles.rowEmoji}>
-                            {p?.emoji ?? "💬"}
+                            {isCmp ? "⚖️" : (p?.emoji ?? "💬")}
                           </Text>
                           <View style={styles.rowInfo}>
                             <Text style={styles.rowTitle} numberOfLines={1}>
                               {s.title}
                             </Text>
                             <Text style={styles.rowSub}>
-                              {p?.name ?? s.providerId} · {s.modelId} ·{" "}
-                              {formatTime(s.updatedAt)}
+                              {isCmp
+                                ? `模型对比 · ${formatTime(s.updatedAt)}`
+                                : `${p?.name ?? s.providerId} · ${s.modelId} · ${formatTime(s.updatedAt)}`}
                             </Text>
                           </View>
                         </Pressable>

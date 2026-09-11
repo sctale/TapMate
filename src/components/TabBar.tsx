@@ -1,9 +1,9 @@
-import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, FONT_SIZE, RADIUS, SPACING } from '../constants';
+import React from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { COLORS, FONT_SIZE, RADIUS, SPACING } from "../constants";
 
-export type TabKey = 'home' | 'config';
+export type TabKey = "home" | "config";
 
 interface Props {
   current: TabKey;
@@ -11,15 +11,20 @@ interface Props {
 }
 
 const TABS: { key: TabKey; emoji: string; label: string }[] = [
-  { key: 'home', emoji: '💬', label: '对话' },
-  { key: 'config', emoji: '⚙️', label: '配置' },
+  { key: "home", emoji: "💬", label: "对话" },
+  { key: "config", emoji: "⚙️", label: "配置" },
 ];
 
 // 底部导航（暖色悬浮胶囊风格，与 TapLedger 一致，适配全面屏底部安全区）
 export default function TabBar({ current, onChange }: Props) {
   const insets = useSafeAreaInsets();
   return (
-    <View style={[styles.wrap, { paddingBottom: SPACING.sm + Math.max(insets.bottom, SPACING.xs) }]}>
+    <View
+      style={[
+        styles.wrap,
+        { paddingBottom: SPACING.sm + Math.max(insets.bottom, SPACING.xs) },
+      ]}
+    >
       <View style={styles.bar}>
         {TABS.map((tab) => {
           const active = tab.key === current;
@@ -28,15 +33,22 @@ export default function TabBar({ current, onChange }: Props) {
               key={tab.key}
               style={styles.item}
               onPress={() => onChange(tab.key)}
-              android_ripple={{ color: 'rgba(0,0,0,0.05)', borderless: true }}
+              android_ripple={{ color: "rgba(0,0,0,0.05)", borderless: true }}
               accessibilityRole="tab"
               accessibilityLabel={tab.label}
               accessibilityState={{ selected: active }}
             >
-              <Text style={[styles.emoji, active && { transform: [{ scale: 1.12 }] }]}>
+              <Text
+                style={[
+                  styles.emoji,
+                  active && { transform: [{ scale: 1.12 }] },
+                ]}
+              >
                 {tab.emoji}
               </Text>
-              <Text style={[styles.label, active && styles.labelActive]}>{tab.label}</Text>
+              <Text style={[styles.label, active && styles.labelActive]}>
+                {tab.label}
+              </Text>
               {active ? <View style={styles.dot} /> : null}
             </Pressable>
           );
@@ -53,13 +65,13 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   bar: {
-    flexDirection: 'row',
+    flexDirection: "row",
     backgroundColor: COLORS.surface,
     borderRadius: RADIUS.xl,
     borderWidth: 1,
     borderColor: COLORS.border,
     paddingVertical: SPACING.xs,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOpacity: 0.06,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 4 },
@@ -67,7 +79,7 @@ const styles = StyleSheet.create({
   },
   item: {
     flex: 1,
-    alignItems: 'center',
+    alignItems: "center",
     paddingVertical: SPACING.xs,
     gap: 1,
   },
@@ -77,11 +89,11 @@ const styles = StyleSheet.create({
   label: {
     fontSize: FONT_SIZE.xs - 0.5,
     color: COLORS.textTertiary,
-    fontWeight: '500',
+    fontWeight: "500",
   },
   labelActive: {
     color: COLORS.accentDark,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   dot: {
     width: 4,

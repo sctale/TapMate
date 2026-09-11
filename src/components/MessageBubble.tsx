@@ -1,26 +1,41 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Animated,
   Easing,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { COLORS, FONT_SIZE, RADIUS, SPACING } from "../constants";
+import { getProvider } from "../providers/registry";
 import MarkdownText from "./MarkdownText";
 import type { ChatMessage } from "../types";
 
 // 单条消息气泡：用户右对齐靛蓝，模型左对齐白卡（Markdown 渲染）
 // thinking=生成中占位动效（audit-1）；error=警示态样式（audit-21）；长按=复制/重试动作入口（audit-17）
+// tagged=对比会话模型标签；reasoning=推理模型思考过程折叠块（v0.3.0）
 interface Props {
   msg: ChatMessage;
   thinking?: boolean; // 该气泡为流式生成中的空占位
+  tagged?: boolean; // 显示 厂商·模型 标签（对比会话）
   onLongPress?: (msg: ChatMessage) => void;
 }
 
-export default function MessageBubble({ msg, thinking, onLongPress }: Props) {
+export default function MessageBubble({
+  msg,
+  thinking,
+  tagged,
+  onLongPress,
+}: Props) {
   const isUser = msg.role === "user";
+  const [showR, setShowR] = useState(false);
+  const hasReasoning = msg.role === "assistant" && !!msg.reasoning;
+  // 推理进行中（还没有正文）时自动展开，让用户看到模型在"想什么"
+  const reasoningOpen = showR || (thinking === true && !msg.content);
+  const provider = msg.providerId ? getProvider(msg.providerId) : undefined;
+
   return (
     <View style={[styles.row, isUser ? styles.rowUser : styles.rowAi]}>
       <Pressable
@@ -32,14 +47,45 @@ export default function MessageBubble({ msg, thinking, onLongPress }: Props) {
         onLongPress={onLongPress ? () => onLongPress(msg) : undefined}
         delayLongPress={350}
       >
+        {tagged && !isUser && msg.modelId ? (
+          <Text style={styles.tag} numberOfLines={1}>
+            {provider?.emoji ?? "🤖"} {provider?.name ?? msg.providerId} ·{" "}
+            {msg.modelId}
+          </Text>
+        ) : null}
+        {hasReasoning ? (
+          <View style={styles.reasonWrap}>
+            <Pressable
+              style={styles.reasonHead}
+              onPress={() => setShowR((v) => !v)}
+            >
+              <Text style={styles.reasonHeadText}>
+                💭 思考过程 {reasoningOpen ? "▴" : "▾"}
+              </Text>
+            </Pressable>
+            {reasoningOpen ? (
+              <ScrollView
+                style={styles.reasonBody}
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={false}
+              >
+                <Text style={styles.reasonText}>{msg.reasoning}</Text>
+              </ScrollView>
+            ) : null}
+          </View>
+        ) : null}
         {thinking && !msg.content ? (
-          <ThinkingDots />
+          hasReasoning ? null : (
+            <ThinkingDots />
+          )
         ) : isUser ? (
           <Text style={[styles.text, styles.textUser]} selectable>
             {msg.content}
           </Text>
-        ) : (
+        ) : msg.content ? (
           <MarkdownText source={msg.content} />
+        ) : (
+          <ThinkingDots />
         )}
         {msg.error ? <Text style={styles.error}>⚠️ {msg.error}</Text> : null}
       </Pressable>
@@ -157,5 +203,33 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.xs,
     color: COLORS.danger,
     fontWeight: "600",
+  },
+  tag: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textTertiary,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  reasonWrap: {
+    marginBottom: SPACING.xs,
+    borderRadius: RADIUS.xs,
+    backgroundColor: COLORS.bgAlt,
+    overflow: "hidden",
+  },
+  reasonHead: { paddingVertical: 7, paddingHorizontal: SPACING.sm },
+  reasonHeadText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+    fontWeight: "600",
+  },
+  reasonBody: {
+    maxHeight: 180,
+    paddingHorizontal: SPACING.sm,
+    paddingBottom: SPACING.sm,
+  },
+  reasonText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textTertiary,
+    lineHeight: 18,
   },
 });

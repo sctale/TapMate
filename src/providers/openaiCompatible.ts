@@ -3,7 +3,7 @@ import type { ChatMessage, StreamHandlers } from "../types";
 import { friendlyStreamError } from "./errors";
 
 // ===== OpenAI 兼容协议适配器（SSE 流式）=====
-// 覆盖：OpenAI / DeepSeek / Kimi / 智谱 / 豆包（火山方舟）/ OpenRouter 等
+// 覆盖：OpenAI / DeepSeek / 通义千问（DashScope 兼容模式）/ 豆包（火山方舟）/ OpenRouter 等
 
 export interface OpenAICompatConfig {
   apiKey: string;
@@ -55,11 +55,16 @@ export function chatStreamOpenAICompat(
         es.close();
         return;
       }
-      const delta: string = json?.choices?.[0]?.delta?.content ?? "";
+      const choice = json?.choices?.[0];
+      const delta: string = choice?.delta?.content ?? "";
       if (delta) {
         full += delta;
         handlers.onDelta(delta);
       }
+      // 推理模型思考过程：DeepSeek=reasoning_content，部分厂商=reasoning
+      const reasoning: string =
+        choice?.delta?.reasoning_content ?? choice?.delta?.reasoning ?? "";
+      if (reasoning) handlers.onReasoning?.(reasoning);
     } catch {
       // 忽略无法解析的心跳/注释行
     }

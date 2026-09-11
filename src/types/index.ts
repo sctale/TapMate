@@ -2,12 +2,12 @@
 
 // 接入通道类型
 export type ChannelType =
-  | 'web' // 应用内 WebView 加载官网（干净 Chrome UA + Cookie 持久化）
-  | 'customTabs' // Chrome Custom Tabs（共享系统 Chrome 登录态，Google 官方合规方案）
-  | 'api'; // 官方 API Key 接入（统一原生对话 UI）
+  | "web" // 应用内 WebView 加载官网（干净 Chrome UA + Cookie 持久化）
+  | "customTabs" // Chrome Custom Tabs（共享系统 Chrome 登录态，Google 官方合规方案）
+  | "api"; // 官方 API Key 接入（统一原生对话 UI）
 
 // API 协议类型（api 通道下细分）
-export type ApiProtocol = 'openai-compatible' | 'gemini';
+export type ApiProtocol = "openai-compatible" | "gemini";
 
 // 厂商定义（注册表静态部分）
 export interface ProviderDef {
@@ -43,10 +43,12 @@ export interface ModelRef {
 // 聊天消息
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: "user" | "assistant" | "system";
   content: string;
   createdAt: number; // 毫秒时间戳
   modelId?: string; // assistant 消息记录所用模型
+  providerId?: string; // assistant 消息所属厂商（并发对比路由用，v0.3.0）
+  reasoning?: string; // 推理模型思考过程（reasoning_content，v0.3.0）
   error?: string; // 失败原因（展示用）
 }
 
@@ -63,6 +65,7 @@ export interface ChatSession {
 // 流式回调
 export interface StreamHandlers {
   onDelta: (text: string) => void; // 增量文本
+  onReasoning?: (text: string) => void; // 推理模型思考过程增量（可选）
   onDone: (fullText: string) => void; // 完成
   onError: (err: Error) => void; // 失败
 }
