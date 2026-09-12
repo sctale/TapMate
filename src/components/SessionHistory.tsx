@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   Alert,
+  FlatList,
   InteractionManager,
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -17,7 +17,6 @@ import {
   searchSessions,
 } from "../database/chatDB";
 import { getProvider } from "../providers/registry";
-import { BrandGlyph } from "./ModelBall";
 import type { ChatSession } from "../types";
 
 interface Props {
@@ -93,6 +92,14 @@ export default function SessionHistory({ visible, onClose, onOpen }: Props) {
     if (last && last.label === label) last.items.push(s);
     else groups.push({ label, items: [s] });
   }
+  // 拍平给 FlatList 做虚拟化（会话多时打开历史不再整列同步渲染）
+  type Row =
+    | { k: string; kind: "h"; label: string }
+    | { k: string; kind: "s"; s: ChatSession };
+  const rows: Row[] = groups.flatMap((g) => [
+    { k: `h-${g.label}`, kind: "h" as const, label: g.label },
+    ...g.items.map((s) => ({ k: s.id, kind: "s" as const, s })),
+  ]);
 
   return (
     <Modal
@@ -116,55 +123,50 @@ export default function SessionHistory({ visible, onClose, onOpen }: Props) {
               {searching ? "搜索中…" : "暂无历史会话"}
             </Text>
           ) : (
-            <ScrollView
+            <FlatList
               style={styles.list}
+              data={rows}
+              keyExtractor={(r) => r.k}
+              initialNumToRender={10}
+              maxToRenderPerBatch={10}
+              windowSize={7}
               showsVerticalScrollIndicator={false}
-            >
-              {groups.map((g) => (
-                <View key={g.label}>
-                  <Text style={styles.groupLabel}>{g.label}</Text>
-                  {g.items.map((s) => {
-                    const p = getProvider(s.providerId);
-                    const isCmp = s.providerId === COMPARE;
-                    return (
-                      <View key={s.id} style={styles.row}>
-                        <Pressable
-                          style={styles.rowMain}
-                          onPress={() => onOpen(s)}
-                        >
-                          <View style={styles.rowIcon}>
-                            {isCmp ? (
-                              <Text style={styles.rowEmoji}>⚖️</Text>
-                            ) : p ? (
-                              <BrandGlyph provider={p} size={20} />
-                            ) : (
-                              <Text style={styles.rowEmoji}>💬</Text>
-                            )}
-                          </View>
-                          <View style={styles.rowInfo}>
-                            <Text style={styles.rowTitle} numberOfLines={1}>
-                              {s.title}
-                            </Text>
-                            <Text style={styles.rowSub}>
-                              {isCmp
-                                ? `模型对比 · ${formatTime(s.updatedAt)}`
-                                : `${p?.name ?? s.providerId} · ${s.modelId} · ${formatTime(s.updatedAt)}`}
-                            </Text>
-                          </View>
-                        </Pressable>
-                        <Pressable
-                          style={styles.delBtn}
-                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                          onPress={() => confirmDelete(s)}
-                        >
-                          <Text style={styles.delText}>🗑</Text>
-                        </Pressable>
+              renderItem={({ item: r }) => {
+                if (r.kind === "h")
+                  return <Text style={styles.groupLabel}>{r.label}</Text>;
+                const s = r.s;
+                const p = getProvider(s.providerId);
+                const isCmp = s.providerId === COMPARE;
+                return (
+                  <View style={styles.row}>
+                    <Pressable style={styles.rowMain} onPress={() => onOpen(s)}>
+                      <View style={styles.rowIcon}>
+                        <Text style={styles.rowEmoji}>
+                          {isCmp ? "⚖️" : (p?.emoji ?? "💬")}
+                        </Text>
                       </View>
-                    );
-                  })}
-                </View>
-              ))}
-            </ScrollView>
+                      <View style={styles.rowInfo}>
+                        <Text style={styles.rowTitle} numberOfLines={1}>
+                          {s.title}
+                        </Text>
+                        <Text style={styles.rowSub}>
+                          {isCmp
+                            ? `模型对比 · ${formatTime(s.updatedAt)}`
+                            : `${p?.name ?? s.providerId} · ${s.modelId} · ${formatTime(s.updatedAt)}`}
+                        </Text>
+                      </View>
+                    </Pressable>
+                    <Pressable
+                      style={styles.delBtn}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      onPress={() => confirmDelete(s)}
+                    >
+                      <Text style={styles.delText}>🗑</Text>
+                    </Pressable>
+                  </View>
+                );
+              }}
+            />
           )}
         </Pressable>
       </Pressable>

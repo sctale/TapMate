@@ -702,7 +702,7 @@ export default function HomeScreen({
       key: "his",
       emoji: "🕘",
       label: "历史会话",
-      onClick: () => setHistoryVisible(true),
+      onClick: () => requestAnimationFrame(() => setHistoryVisible(true)),
     });
     if (showInline) {
       list.push(

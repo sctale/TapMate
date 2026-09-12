@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
 import {
   Animated,
+  Image,
   PanResponder,
   Pressable,
   ScrollView,
@@ -15,6 +16,11 @@ import { clampBallRatio } from "./ballMath";
 import type { ProviderDef } from "../types";
 
 export { clampBallRatio };
+
+// 无矢量源的品牌用官方位图（simple-icons 因商标下架 openai/doubao；openai 走 Wikimedia path）
+const BRAND_PNGS: Record<string, number> = {
+  doubao: require("../../assets/providers/doubao.png"),
+};
 
 // ===== TapBall 悬浮球（v0.4.1）=====
 // 球面与展开菜单统一用「球」语言：菜单是一纵列球（品牌矢量图标），名称做左侧小标签。
@@ -52,7 +58,7 @@ interface Props {
 const BALL = 46;
 const MBALL = 40; // 菜单内球径
 
-/** 品牌矢量图标；无矢量源回落 emoji */
+/** 品牌图标：矢量 path 优先，其次官方位图（豆包），再无则回落 emoji */
 export function BrandGlyph({
   provider,
   size,
@@ -62,6 +68,16 @@ export function BrandGlyph({
 }) {
   const icon = BRAND_ICONS[provider.id];
   if (!icon) {
+    const png = BRAND_PNGS[provider.id];
+    if (png) {
+      return (
+        <Image
+          source={png}
+          style={{ width: size, height: size }}
+          resizeMode="contain"
+        />
+      );
+    }
     return <Text style={{ fontSize: size * 0.82 }}>{provider.emoji}</Text>;
   }
   return (
@@ -303,9 +319,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    zIndex: 39,
+    zIndex: 40,
   },
-  ballWrap: { position: "absolute", right: 8 },
+  ballWrap: { position: "absolute", right: 8, zIndex: 41 },
   ball: {
     width: BALL,
     height: BALL,
@@ -344,6 +360,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     paddingTop: SPACING.sm,
     paddingBottom: SPACING.xs,
+    zIndex: 41,
     elevation: 8,
     shadowColor: "#000",
     shadowOpacity: 0.14,
