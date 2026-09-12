@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useState } from "react";
+import React, { memo, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Easing,
@@ -20,6 +20,7 @@ interface Props {
   msg: ChatMessage;
   thinking?: boolean; // 该气泡为流式生成中的空占位
   tagged?: boolean; // 显示 厂商·模型 标签（对比会话）
+  onRetry?: (msg: ChatMessage) => void; // 错误态内联重试（v0.4.3）
   onLongPress?: (msg: ChatMessage) => void;
 }
 
@@ -27,6 +28,7 @@ const MessageBubble = memo(function MessageBubble({
   msg,
   thinking,
   tagged,
+  onRetry,
   onLongPress,
 }: Props) {
   const isUser = msg.role === "user";
@@ -88,6 +90,15 @@ const MessageBubble = memo(function MessageBubble({
           <ThinkingDots />
         )}
         {msg.error ? <Text style={styles.error}>⚠️ {msg.error}</Text> : null}
+        {msg.error && onRetry ? (
+          <Pressable
+            style={styles.retryBtn}
+            onPress={() => onRetry(msg)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.retryBtnText}>🔁 重试</Text>
+          </Pressable>
+        ) : null}
       </Pressable>
     </View>
   );
@@ -108,7 +119,7 @@ function ThinkingDots() {
 }
 
 function BounceDot({ delay }: { delay: number }) {
-  const anim = new Animated.Value(0);
+  const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
@@ -206,6 +217,15 @@ const styles = StyleSheet.create({
     color: COLORS.danger,
     fontWeight: "600",
   },
+  retryBtn: {
+    alignSelf: "flex-start",
+    marginTop: SPACING.xs,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 6,
+    borderRadius: RADIUS.pill,
+    backgroundColor: COLORS.danger,
+  },
+  retryBtnText: { color: "#fff", fontSize: FONT_SIZE.xs, fontWeight: "700" },
   tag: {
     fontSize: FONT_SIZE.xs,
     color: COLORS.textTertiary,

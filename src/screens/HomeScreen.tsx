@@ -73,8 +73,9 @@ export default function HomeScreen({
 }) {
   const insets = useSafeAreaInsets();
   const { configs, loaded, dynamicModels } = useProviders();
-  const toast = useToast(96);
   const [model, setModel] = useState<ModelRef | null>(null);
+  // 官网嵌入态没有输入区，toast 下移避免悬在半空（D16）
+  const toast = useToast(model?.modelId === "$web$" ? 48 : 96);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -83,7 +84,6 @@ export default function HomeScreen({
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
   const [showJump, setShowJump] = useState(false);
   const [inlineDismissed, setInlineDismissed] = useState(false);
-  const hintShown = useRef(false);
   // 悬浮球（v0.4.0）：位置比例持久化 + 嵌入网页后退可用性 + 命令式控制句柄
   const [ballRatio, setBallRatio] = useState(0.22);
   const [webCanGoBack, setWebCanGoBack] = useState(false);
@@ -92,6 +92,8 @@ export default function HomeScreen({
   const [compareOn, setCompareOn] = useState(false);
   const [compareSel, setCompareSel] = useState<ModelRef[]>([]);
   const [compareSheet, setCompareSheet] = useState(false);
+  // 当前打开的是否为对比会话（state 而非 ref：修复历史对比会话首帧无模型标签）
+  const [compareSession, setCompareSession] = useState(false);
   const sessionRef = useRef<ChatSession | null>(null);
   const nearBottomRef = useRef(true);
   const restoredRef = useRef(false);
@@ -206,20 +208,29 @@ export default function HomeScreen({
     saveSetting(SETTING_KEYS.BALL_POS, String(clamped)).catch(() => {});
   }, []);
 
-  // 首次进入给出球的位置说明（一次性）
+  // 首次进入给出球的位置说明（只给一次，BALL_HINT 持久化）
+  const showHint = toast.show;
   useEffect(() => {
-    if (hintShown.current || !loaded) return;
-    hintShown.current = true;
-    const t = setTimeout(
-      () =>
-        toast.show(
-          "所有功能收进右侧悬浮球 · 点它切换模型/去配置，可拖动",
-          4000,
-        ),
-      800,
-    );
-    return () => clearTimeout(t);
-  }, [loaded, toast]);
+    if (!loaded) return;
+    let t: ReturnType<typeof setTimeout> | null = null;
+    loadSetting(SETTING_KEYS.BALL_HINT)
+      .then((v) => {
+        if (v === "1") return;
+        saveSetting(SETTING_KEYS.BALL_HINT, "1").catch(() => {});
+        t = setTimeout(
+          () =>
+            showHint(
+              "所有功能收进右侧悬浮球：点球切换模型/去配置，可上下拖动",
+              4000,
+            ),
+          600,
+        );
+      })
+      .catch(() => {});
+    return () => {
+      if (t) clearTimeout(t);
+    };
+  }, [loaded, showHint]);
 
   // 登录确认 → 自动选中该厂商并进入首页嵌入对话（修复「点我已登录后无处可用」）
   /* eslint-disable react-hooks/exhaustive-deps */
@@ -416,6 +427,7 @@ export default function HomeScreen({
     (m: ModelRef) => {
       abortStreams();
       setCompareOn(false);
+      setCompareSession(false);
       setModel(m);
       persistModel(m);
       setMessages([]);
@@ -436,6 +448,7 @@ export default function HomeScreen({
       );
       setCompareSheet(false);
       setCompareOn(true);
+      setCompareSession(true);
       setModel({ providerId: COMPARE, modelId: COMPARE, label: "模型对比" });
       setMessages([]);
       sessionRef.current = null;
@@ -449,6 +462,7 @@ export default function HomeScreen({
       setCompareSel,
       setCompareSheet,
       setCompareOn,
+      setCompareSession,
       setModel,
       setMessages,
       setShowJump,
@@ -469,7 +483,7 @@ export default function HomeScreen({
       toast.show("已退出对比模式");
     } else {
       if (apiAvailable.length < 2) {
-        toast.show("需至少 2 个 API 通道模型，先去「配置」页连接");
+        toast.show("需至少 2 个 API 通道模型：点球 →「配置厂商与 Key」连接");
         return;
       }
       setCompareSheet(true);
@@ -507,10 +521,12 @@ export default function HomeScreen({
         }
         setCompareSel([...uniq.values()].slice(0, 4));
         setCompareOn(true);
+        setCompareSession(true);
         setModel({ providerId: COMPARE, modelId: COMPARE, label: "模型对比" });
         setInlineDismissed(true);
       } else {
         setCompareOn(false);
+        setCompareSession(false);
         const m: ModelRef = {
           providerId: sess.providerId,
           modelId: sess.modelId,
@@ -593,6 +609,13 @@ export default function HomeScreen({
     startStreamFor(t, context, { ...target, content: "", error: undefined });
   };
 
+  // renderItem 用的稳定 onRetry（retryOne 内部读最新 state 闭包，经 ref 转发保持引用不变）
+  const retryOneRef = useRef(retryOne);
+  retryOneRef.current = retryOne;
+  const onRetry = useCallback((m: ChatMessage) => {
+    retryOneRef.current(m);
+  }, []);
+
   const copyMessage = async (m: ChatMessage) => {
     setActionMsg(null);
     await Clipboard.setStringAsync(m.content);
@@ -623,7 +646,7 @@ export default function HomeScreen({
     if (isBrowserGate)
       return `${model?.label ?? ""} 的对话在系统浏览器中进行（Google 政策），下方一键打开`;
     if (isWebModel)
-      return `点右侧悬浮球「打开 ${model?.label ?? ""} 嵌入对话」，官网界面直接嵌入这里`;
+      return `${model?.label ?? ""} 的官网界面会直接嵌入这里，点右侧悬浮球即可打开`;
     return `在下方输入消息开始和 ${model?.label ?? ""} 对话`;
   }, [
     available.length,
@@ -814,8 +837,11 @@ export default function HomeScreen({
                     !item.content &&
                     streams.current.has(item.id)
                   }
-                  tagged={
-                    compareActive || sessionRef.current?.providerId === COMPARE
+                  tagged={compareActive || compareSession}
+                  onRetry={
+                    item.error && !streaming && item.providerId
+                      ? onRetry
+                      : undefined
                   }
                   onLongPress={setActionMsg}
                 />
@@ -1021,7 +1047,7 @@ function BrowserGate({ providerId }: { providerId: string }) {
       </Pressable>
       {opened ? (
         <Text style={styles.gateHint}>
-          浏览器标签已打开，聊完直接回到这里即可；下次点模型胶囊也能再次打开
+          浏览器标签已打开，聊完直接回到这里即可；下次点右侧悬浮球也能再次打开
         </Text>
       ) : null}
     </View>

@@ -109,7 +109,10 @@ export default function SessionHistory({ visible, onClose, onOpen }: Props) {
       onRequestClose={onClose}
     >
       <Pressable style={styles.overlay} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+        <Pressable
+          style={[styles.sheet, rows.length > 0 && styles.sheetFull]}
+          onPress={(e) => e.stopPropagation()}
+        >
           <Text style={styles.title}>🕘 历史会话</Text>
           <TextInput
             style={styles.search}
@@ -192,6 +195,7 @@ const styles = StyleSheet.create({
     padding: SPACING.lg,
     maxHeight: "78%",
   },
+  sheetFull: { height: "72%" },
   title: {
     fontSize: FONT_SIZE.lg,
     fontWeight: "700",
@@ -215,7 +219,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: SPACING.xl,
   },
-  list: { flexGrow: 0 },
+  list: { flex: 1 },
   groupLabel: {
     fontSize: FONT_SIZE.xs,
     color: COLORS.textTertiary,

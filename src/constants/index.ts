@@ -61,6 +61,7 @@ export const SETTING_KEYS = {
   WELCOME_SEEN: "welcome_seen", // 首启双通道引导是否已看过
   COMPARE_MODELS: "compare_models", // 并发对比所选模型（JSON: ModelRef[]）
   BALL_POS: "ball_pos", // 悬浮球垂直位置（0-1 比例）
+  BALL_HINT: "ball_hint", // 悬浮球首次提示是否已展示
 } as const;
 
 // 并发对比模式的虚拟厂商/模型标识（v0.3.0）

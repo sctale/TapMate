@@ -133,7 +133,9 @@ export default function WebChatScreen({
                 已在浏览器中完成 {provider.name} 登录？
               </Text>
               <Pressable style={styles.primaryBtn} onPress={confirmLoggedIn}>
-                <Text style={styles.primaryBtnText}>✅ 我已登录</Text>
+                <Text style={styles.primaryBtnText}>
+                  ✅ 我已登录 · 回首页开聊
+                </Text>
               </Pressable>
               <Text style={styles.hintMedium}>
                 如果尚未登录，可点击右上角 ✕ 返回，之后重新登录
@@ -217,7 +219,7 @@ export default function WebChatScreen({
         ]}
       >
         <Pressable style={styles.primaryBtn} onPress={confirmLoggedIn}>
-          <Text style={styles.primaryBtnText}>✅ 我已登录，开始使用</Text>
+          <Text style={styles.primaryBtnText}>✅ 我已登录 · 回首页开聊</Text>
         </Pressable>
         <Text style={styles.hintMedium}>
           在官网完成登录后，点此确认（未登录请勿点击）

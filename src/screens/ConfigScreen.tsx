@@ -38,7 +38,7 @@ const CHANNEL_LABEL: Record<ChannelType, string> = {
 const CHANNEL_DESC: Record<ChannelType, string> = {
   web: "登录一次官网账号后，对话直接嵌入首页进行（不跳转页面），免费用你的订阅额度",
   customTabs:
-    "Google 禁止应用内对话：在系统浏览器标签里聊（共享 Chrome 登录态），首页模型下有一键打开按钮",
+    "Google 禁止应用内对话：在系统浏览器标签里聊（共享 Chrome 登录态），首页点悬浮球有一键打开按钮",
   api: "填入 API Key，在统一的原生聊天界面对话，按 Token 计费，支持流式与本地历史",
 };
 
@@ -97,9 +97,13 @@ export default function ConfigScreen({ onOpenWeb, onBack }: Props) {
     setBusy(true);
     const cfg = configs.get(p.id);
     const baseUrl = baseDraft.trim() || cfg?.baseUrl || p.apiBaseUrl || "";
-    const res = await testApiKey(p, key, baseUrl);
-    setBusy(false);
-    if (res.ok) {
+    try {
+      const res = await testApiKey(p, key, baseUrl);
+      if (!res.ok) {
+        // 区分超时 / 网络 / 鉴权 / 其他状态码，不再笼统「检查 Key 与地址」（audit-25）
+        toast.show(`❌ ${friendlyTestReason(res.reason ?? "network")}`, 3500);
+        return;
+      }
       await updateConfig({
         providerId: p.id,
         enabled: true,
@@ -108,6 +112,7 @@ export default function ConfigScreen({ onOpenWeb, onBack }: Props) {
         baseUrl,
       });
       setKeyDraft("");
+      // 拉清单也纳入 busy 窗口，防止中途重复提交（D13）
       const ids = await fetchModelIds(p, key, baseUrl).catch(() => null);
       if (ids?.length) await syncModelIds(p.id, ids);
       toast.show(
@@ -116,9 +121,8 @@ export default function ConfigScreen({ onOpenWeb, onBack }: Props) {
           : `✅ ${p.name} 连接成功`,
         3000,
       );
-    } else {
-      // 区分超时 / 网络 / 鉴权 / 其他状态码，不再笼统「检查 Key 与地址」（audit-25）
-      toast.show(`❌ ${friendlyTestReason(res.reason ?? "network")}`, 3500);
+    } finally {
+      setBusy(false);
     }
   };
 

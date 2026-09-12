@@ -1,7 +1,8 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
   Image,
+  Keyboard,
   PanResponder,
   Pressable,
   ScrollView,
@@ -9,6 +10,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Svg, Path } from "react-native-svg";
 import { COLORS, FONT_SIZE, RADIUS, SPACING } from "../constants";
 import { BRAND_ICONS } from "../constants/brandIcons";
@@ -97,13 +99,54 @@ export default function ModelBall({
   ratio,
   onRatioChange,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
   const [subOpen, setSubOpen] = useState<string | null>(null);
   const [h, setH] = useState(0);
+  const [keyboardH, setKeyboardH] = useState(0);
   const dragAnim = useRef(new Animated.Value(0)).current;
   const movedRef = useRef(false);
 
-  const top = ratio * h;
+  // 键盘弹出时球不跳位：可用区随键盘收缩，ratio 语义稳定
+  useEffect(() => {
+    const sh = Keyboard.addListener("keyboardDidShow", (e) =>
+      setKeyboardH(e.endCoordinates?.height ?? 0),
+    );
+    const hi = Keyboard.addListener("keyboardDidHide", () => setKeyboardH(0));
+    return () => {
+      sh.remove();
+      hi.remove();
+    };
+  }, []);
+
+  const minY = insets.top + 8;
+  const maxY = Math.max(
+    minY + 1,
+    h - Math.max(insets.bottom, keyboardH) - BALL - 8,
+  );
+  const top = minY + ratio * (maxY - minY);
+
+  // pan 回调经 ref 读取最新几何（useRef 只建一次，闭包不能直接捕获 state）
+  const geoRef = useRef({ top, maxY, minY, h, onRatioChange });
+  geoRef.current = { top, maxY, minY, h, onRatioChange };
+
+  // 松手/被系统打断（回桌面、通知栏）统一落位
+  const finishDrag = (dy: number) => {
+    const {
+      top: t,
+      minY: lo,
+      maxY: hi,
+      h: hh,
+      onRatioChange: cb,
+    } = geoRef.current;
+    if (hh > 0) {
+      const nt = Math.min(hi, Math.max(lo, t + dy));
+      cb(hi > lo ? (nt - lo) / (hi - lo) : 0);
+    }
+    dragAnim.setValue(0);
+  };
+  const finishDragRef = useRef(finishDrag);
+  finishDragRef.current = finishDrag;
 
   const pan = useRef(
     PanResponder.create({
@@ -118,18 +161,23 @@ export default function ModelBall({
         dragAnim.setValue(g.dy);
       },
       onPanResponderTerminationRequest: () => false,
-      onPanResponderRelease: (_e, g) => {
-        if (h > 0) onRatioChange(clampBallRatio((top + g.dy) / h));
-        dragAnim.setValue(0);
-      },
+      onPanResponderRelease: (_e, g) => finishDragRef.current(g.dy),
+      onPanResponderTerminate: (_e, g) => finishDragRef.current(g.dy),
     }),
   ).current;
 
+  // 选厂商/子模型：菜单保持打开（active 环即时反馈），点遮罩才关
+  const runGroup = (fn: () => void) => fn();
+  // 动作项：关闭菜单再执行
   const run = (fn: () => void) => {
     setOpen(false);
     setSubOpen(null);
     fn();
   };
+
+  // 菜单优先贴球下方；球太靠下时向上翻
+  const menuTop =
+    top + BALL + 6 + 260 > h ? Math.max(minY, top - 260) : top + BALL + 6;
 
   return (
     <View
@@ -143,7 +191,7 @@ export default function ModelBall({
 
       {/* 展开菜单：一纵列球（品牌图标），左缘名称标签；整体可滚动 */}
       {open && h > 0 ? (
-        <View style={[styles.menu, { top: Math.min(top + BALL + 6, h * 0.3) }]}>
+        <View style={[styles.menu, { top: Math.min(menuTop, h * 0.66) }]}>
           <Text style={styles.menuHead}>{headerLabel}</Text>
           <ScrollView
             style={styles.menuScroll}
@@ -153,7 +201,7 @@ export default function ModelBall({
               <View key={g.provider.id}>
                 <Pressable
                   style={[styles.mrow, g.active && styles.mrowOn]}
-                  onPress={() => run(g.onPick)}
+                  onPress={() => runGroup(g.onPick)}
                 >
                   <View style={styles.mrowInfo}>
                     <Text
@@ -197,6 +245,7 @@ export default function ModelBall({
                 {g.sub && subOpen === g.provider.id ? (
                   <ScrollView
                     horizontal
+                    nestedScrollEnabled
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={styles.subRow}
                   >
@@ -204,7 +253,7 @@ export default function ModelBall({
                       <Pressable
                         key={s.modelId}
                         style={[styles.subChip, s.active && styles.subChipOn]}
-                        onPress={() => run(s.onPick)}
+                        onPress={() => runGroup(s.onPick)}
                       >
                         <Text
                           style={[
@@ -261,7 +310,7 @@ export default function ModelBall({
 
             {groups.length === 0 ? (
               <Text style={styles.menuEmpty}>
-                还没连接模型 · 点下方「配置厂商与 Key」添加
+                还没连接模型 · 点「⚙️ 配置厂商与 Key」添加
               </Text>
             ) : null}
           </ScrollView>
