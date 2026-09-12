@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   Alert,
+  BackHandler,
   FlatList,
-  InteractionManager,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -20,13 +19,13 @@ import { getProvider } from "../providers/registry";
 import type { ChatSession } from "../types";
 
 interface Props {
-  visible: boolean;
   onClose: () => void;
   onOpen: (session: ChatSession) => void;
 }
 
-// 会话历史弹窗：搜索 + 时间分组 + 删除二次确认（audit-11/13/16）
-export default function SessionHistory({ visible, onClose, onOpen }: Props) {
+// 会话历史：页内覆盖层（v0.5.0 起不再用 Modal——Android Modal 窗口 + fade 合成开销大，
+// 叠加虚拟化列表与搜索，打开/滚动都不该卡）；搜索 + 时间分组 + 删除二次确认。
+export default function SessionHistory({ onClose, onOpen }: Props) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -40,20 +39,24 @@ export default function SessionHistory({ visible, onClose, onOpen }: Props) {
   }, []);
 
   useEffect(() => {
-    if (!visible) {
-      setQuery("");
-      return;
-    }
-    const kw = query.trim();
-    // 打开时等淡入动画结束再查库；输入搜索时仍走短防抖
-    if (kw) {
-      setSearching(true);
-      const t = setTimeout(() => reload(query), 250);
-      return () => clearTimeout(t);
-    }
-    const task = InteractionManager.runAfterInteractions(() => reload(""));
-    return () => task.cancel();
-  }, [visible, query, reload]);
+    reload("");
+  }, [reload]);
+
+  // 覆盖层期间 Android 返回键 = 关闭历史
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!query.trim()) return;
+    setSearching(true);
+    const t = setTimeout(() => reload(query), 250);
+    return () => clearTimeout(t);
+  }, [query, reload]);
 
   // 删除前二次确认，防误触不可恢复（audit-13）
   const confirmDelete = (s: ChatSession) => {
@@ -102,78 +105,71 @@ export default function SessionHistory({ visible, onClose, onOpen }: Props) {
   ]);
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-    >
-      <Pressable style={styles.overlay} onPress={onClose}>
-        <Pressable
-          style={[styles.sheet, rows.length > 0 && styles.sheetFull]}
-          onPress={(e) => e.stopPropagation()}
-        >
-          <Text style={styles.title}>🕘 历史会话</Text>
-          <TextInput
-            style={styles.search}
-            placeholder="搜索标题或聊天内容…"
-            placeholderTextColor={COLORS.textTertiary}
-            value={query}
-            onChangeText={setQuery}
+    <Pressable style={styles.page} onPress={onClose}>
+      <Pressable
+        style={[styles.sheet, rows.length > 0 && styles.sheetFull]}
+        onPress={(e) => e.stopPropagation()}
+      >
+        <Text style={styles.title}>🕘 历史会话</Text>
+        <TextInput
+          style={styles.search}
+          placeholder="搜索标题或聊天内容…"
+          placeholderTextColor={COLORS.textTertiary}
+          value={query}
+          onChangeText={setQuery}
+        />
+        {sessions.length === 0 ? (
+          <Text style={styles.empty}>
+            {searching ? "搜索中…" : "暂无历史会话"}
+          </Text>
+        ) : (
+          <FlatList
+            style={styles.list}
+            data={rows}
+            keyExtractor={(r) => r.k}
+            initialNumToRender={10}
+            maxToRenderPerBatch={10}
+            windowSize={7}
+            showsVerticalScrollIndicator={false}
+            renderItem={({ item: r }) => {
+              if (r.kind === "h")
+                return <Text style={styles.groupLabel}>{r.label}</Text>;
+              const s = r.s;
+              const p = getProvider(s.providerId);
+              const isCmp = s.providerId === COMPARE;
+              return (
+                <View style={styles.row}>
+                  <Pressable style={styles.rowMain} onPress={() => onOpen(s)}>
+                    <View style={styles.rowIcon}>
+                      <Text style={styles.rowEmoji}>
+                        {isCmp ? "⚖️" : (p?.emoji ?? "💬")}
+                      </Text>
+                    </View>
+                    <View style={styles.rowInfo}>
+                      <Text style={styles.rowTitle} numberOfLines={1}>
+                        {s.title}
+                      </Text>
+                      <Text style={styles.rowSub}>
+                        {isCmp
+                          ? `模型对比 · ${formatTime(s.updatedAt)}`
+                          : `${p?.name ?? s.providerId} · ${s.modelId} · ${formatTime(s.updatedAt)}`}
+                      </Text>
+                    </View>
+                  </Pressable>
+                  <Pressable
+                    style={styles.delBtn}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    onPress={() => confirmDelete(s)}
+                  >
+                    <Text style={styles.delText}>🗑</Text>
+                  </Pressable>
+                </View>
+              );
+            }}
           />
-          {sessions.length === 0 ? (
-            <Text style={styles.empty}>
-              {searching ? "搜索中…" : "暂无历史会话"}
-            </Text>
-          ) : (
-            <FlatList
-              style={styles.list}
-              data={rows}
-              keyExtractor={(r) => r.k}
-              initialNumToRender={10}
-              maxToRenderPerBatch={10}
-              windowSize={7}
-              showsVerticalScrollIndicator={false}
-              renderItem={({ item: r }) => {
-                if (r.kind === "h")
-                  return <Text style={styles.groupLabel}>{r.label}</Text>;
-                const s = r.s;
-                const p = getProvider(s.providerId);
-                const isCmp = s.providerId === COMPARE;
-                return (
-                  <View style={styles.row}>
-                    <Pressable style={styles.rowMain} onPress={() => onOpen(s)}>
-                      <View style={styles.rowIcon}>
-                        <Text style={styles.rowEmoji}>
-                          {isCmp ? "⚖️" : (p?.emoji ?? "💬")}
-                        </Text>
-                      </View>
-                      <View style={styles.rowInfo}>
-                        <Text style={styles.rowTitle} numberOfLines={1}>
-                          {s.title}
-                        </Text>
-                        <Text style={styles.rowSub}>
-                          {isCmp
-                            ? `模型对比 · ${formatTime(s.updatedAt)}`
-                            : `${p?.name ?? s.providerId} · ${s.modelId} · ${formatTime(s.updatedAt)}`}
-                        </Text>
-                      </View>
-                    </Pressable>
-                    <Pressable
-                      style={styles.delBtn}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      onPress={() => confirmDelete(s)}
-                    >
-                      <Text style={styles.delText}>🗑</Text>
-                    </Pressable>
-                  </View>
-                );
-              }}
-            />
-          )}
-        </Pressable>
+        )}
       </Pressable>
-    </Modal>
+    </Pressable>
   );
 }
 
@@ -183,10 +179,15 @@ function formatTime(ts: number): string {
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
+  page: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: COLORS.overlay,
     justifyContent: "flex-end",
+    zIndex: 38,
   },
   sheet: {
     backgroundColor: COLORS.background,

@@ -1,10 +1,4 @@
-import React, {
-  forwardRef,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useState,
-} from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   BackHandler,
@@ -20,27 +14,18 @@ import { COLORS, FONT_SIZE, RADIUS, SPACING } from "../constants";
 import { getProvider } from "../providers/registry";
 import { CHROME_UA, WEBVIEW_BASE_PROPS } from "../providers/webConfig";
 
-// ===== 首页嵌入式官网对话（Msty 式外壳模式）=====
-// 官网通道厂商连接后，官网会话（含官网自己的输入框）直接内嵌在首页内容区，
-// 聊天就在首页完成，不跳转第二个页面。
-// v0.4.0：去掉浮动控件条——后退/刷新/退出统一收进悬浮球菜单；
-// Android 用 software 图层，保证悬浮球能浮在 WebView 之上。
-
-export interface InlineWebHandle {
-  reload: () => void;
-  goBack: () => void;
-}
+// ===== 官网通道 · 全屏对话页（v0.5.0）=====
+// 参考 Msty Navigator 标签页 / Cherry Studio 快应用：官网对话是「一整页」，
+// 控件是布局兄弟节点而非悬浮层 → WebView 保持硬件加速（软件层曾拖垮历史面板）。
+// 此模式下首页悬浮球自动隐藏（RN 视图无法可靠覆盖硬件层 WebView，避免再造覆盖层）。
+// 登录与对话共用此页：登录态 cookie 持久化在容器内，一次登录长期有效。
 
 interface Props {
   providerId: string;
-  onExit: () => void; // 关闭嵌入，回到首页常规视图
-  onCanGoBackChange?: (v: boolean) => void; // 上报网页可后退状态（球菜单「‹ 后退」置灰用）
+  onExit: () => void; // 返回聊天首页（悬浮球恢复显示）
 }
 
-const InlineWebChat = forwardRef<InlineWebHandle, Props>(function InlineWebChat(
-  { providerId, onExit, onCanGoBackChange },
-  ref,
-) {
+export default function InlineWebChat({ providerId, onExit }: Props) {
   const insets = useSafeAreaInsets();
   const provider = getProvider(providerId);
   const webRef = useRef<WebView>(null);
@@ -48,16 +33,7 @@ const InlineWebChat = forwardRef<InlineWebHandle, Props>(function InlineWebChat(
   const [loadError, setLoadError] = useState(false);
   const [canGoBack, setCanGoBack] = useState(false);
 
-  useImperativeHandle(ref, () => ({
-    reload: () => {
-      setLoadError(false);
-      setLoading(true);
-      webRef.current?.reload();
-    },
-    goBack: () => webRef.current?.goBack(),
-  }));
-
-  // Android 返回键：优先官网页面内后退，无路可退时退出嵌入对话（不退出 App）
+  // Android 返回键：优先官网页面内后退，无路可退时返回首页
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (canGoBack) {
@@ -72,55 +48,55 @@ const InlineWebChat = forwardRef<InlineWebHandle, Props>(function InlineWebChat(
 
   if (!provider) return null;
 
-  return (
-    <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 0) }]}>
-      <WebView
-        ref={webRef}
-        source={{ uri: provider.webUrl }}
-        style={styles.webview}
-        userAgent={CHROME_UA}
-        {...WEBVIEW_BASE_PROPS}
-        androidLayerType="software"
-        onLoadStart={() => setLoadError(false)}
-        onLoadEnd={() => setLoading(false)}
-        onNavigationStateChange={(nav: WebViewNavigation) => {
-          setCanGoBack(nav.canGoBack);
-          onCanGoBackChange?.(nav.canGoBack);
-        }}
-        onError={(synthetic) => {
-          const { nativeEvent } = synthetic;
-          console.warn(
-            "[inline-web] load error:",
-            nativeEvent.code,
-            nativeEvent.description,
-          );
-          setLoading(false);
-          setLoadError(true);
-        }}
-      />
+  const reload = () => {
+    setLoadError(false);
+    setLoading(true);
+    webRef.current?.reload();
+  };
 
-      {loading && !loadError ? (
-        <View
-          style={[styles.loadingBox, { top: insets.top + SPACING.md }]}
-          pointerEvents="none"
+  return (
+    <View style={[styles.wrap, { paddingTop: insets.top }]}>
+      {/* 顶部控制条：布局兄弟节点，不悬浮于网页之上 */}
+      <View style={styles.bar}>
+        <Pressable
+          style={[styles.barBtn, !canGoBack && styles.barBtnHidden]}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          onPress={() => webRef.current?.goBack()}
+          accessibilityLabel="网页后退"
         >
-          <ActivityIndicator color={COLORS.accent} />
-        </View>
-      ) : null}
+          <Text style={styles.barBtnText}>‹</Text>
+        </Pressable>
+        <Text style={styles.barTitle} numberOfLines={1}>
+          {provider.emoji} {provider.name}
+          <Text style={styles.barMode}> · 官网对话</Text>
+        </Text>
+        {loading && !loadError ? (
+          <ActivityIndicator size="small" color={COLORS.accent} />
+        ) : null}
+        <Pressable
+          style={styles.barBtn}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          onPress={reload}
+          accessibilityLabel="刷新页面"
+        >
+          <Text style={styles.barBtnText}>⟳</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.barBtn, styles.exitBtn]}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          onPress={onExit}
+          accessibilityLabel="返回首页"
+        >
+          <Text style={[styles.barBtnText, { color: COLORS.danger }]}>✕</Text>
+        </Pressable>
+      </View>
 
       {loadError ? (
-        <View style={styles.errOverlay}>
+        <View style={styles.errBody}>
           <Text style={styles.errEmoji}>📡</Text>
           <Text style={styles.errTitle}>无法加载 {provider.name} 官网</Text>
           <Text style={styles.errHint}>可能是网络不通或该域名需要代理</Text>
-          <Pressable
-            style={styles.errPrimary}
-            onPress={() => {
-              setLoadError(false);
-              setLoading(true);
-              webRef.current?.reload();
-            }}
-          >
+          <Pressable style={styles.errPrimary} onPress={reload}>
             <Text style={styles.errPrimaryText}>🔄 重试</Text>
           </Pressable>
           <Pressable
@@ -129,30 +105,84 @@ const InlineWebChat = forwardRef<InlineWebHandle, Props>(function InlineWebChat(
           >
             <Text style={styles.errSecondaryText}>用系统浏览器打开</Text>
           </Pressable>
+          <Pressable style={styles.errGhost} onPress={onExit}>
+            <Text style={styles.errGhostText}>返回首页</Text>
+          </Pressable>
         </View>
-      ) : null}
+      ) : (
+        <WebView
+          ref={webRef}
+          source={{ uri: provider.webUrl }}
+          style={styles.webview}
+          userAgent={CHROME_UA}
+          {...WEBVIEW_BASE_PROPS}
+          onLoadStart={() => setLoadError(false)}
+          onLoadEnd={() => setLoading(false)}
+          onNavigationStateChange={(nav: WebViewNavigation) =>
+            setCanGoBack(nav.canGoBack)
+          }
+          onError={(synthetic) => {
+            const { nativeEvent } = synthetic;
+            console.warn(
+              "[inline-web] load error:",
+              nativeEvent.code,
+              nativeEvent.description,
+            );
+            setLoading(false);
+            setLoadError(true);
+          }}
+        />
+      )}
     </View>
   );
-});
-
-export default InlineWebChat;
+}
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: COLORS.surface },
+  bar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.sm,
+    height: 48,
+    backgroundColor: COLORS.surfaceAlt,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  barTitle: {
+    flex: 1,
+    fontSize: FONT_SIZE.md,
+    fontWeight: "700",
+    color: COLORS.text,
+  },
+  barMode: {
+    fontSize: FONT_SIZE.xs,
+    fontWeight: "600",
+    color: COLORS.accentDark,
+  },
+  barBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: RADIUS.pill,
+    backgroundColor: COLORS.bgAlt,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  barBtnHidden: { opacity: 0.25 },
+  exitBtn: { backgroundColor: "#FDECEA" },
+  barBtnText: {
+    fontSize: FONT_SIZE.lg,
+    color: COLORS.textSecondary,
+    fontWeight: "700",
+  },
   webview: { flex: 1, backgroundColor: COLORS.surface },
-  loadingBox: { position: "absolute", alignSelf: "center", zIndex: 6 },
-  errOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+  errBody: {
+    flex: 1,
     backgroundColor: COLORS.background,
     alignItems: "center",
     justifyContent: "center",
     gap: SPACING.sm,
     padding: SPACING.xl,
-    zIndex: 20,
   },
   errEmoji: { fontSize: 44 },
   errTitle: { fontSize: FONT_SIZE.lg, fontWeight: "700", color: COLORS.text },
@@ -185,4 +215,6 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.sm,
     fontWeight: "600",
   },
+  errGhost: { padding: SPACING.sm, marginTop: SPACING.xs },
+  errGhostText: { fontSize: FONT_SIZE.xs, color: COLORS.textTertiary },
 });

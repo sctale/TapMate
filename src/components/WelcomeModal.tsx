@@ -23,7 +23,7 @@ export default function WelcomeModal({ visible, onDismiss }: Props) {
           <Text style={styles.emoji}>👋</Text>
           <Text style={styles.title}>欢迎来到 TapMate</Text>
           <Text style={styles.subtitle}>
-            连模型有两条路，随时可在「配置」页调整：
+            连模型有两条路，随时可在悬浮球→「配置厂商与 Key」调整：
           </Text>
 
           <View style={styles.row}>
@@ -31,7 +31,7 @@ export default function WelcomeModal({ visible, onDismiss }: Props) {
             <View style={styles.rowInfo}>
               <Text style={styles.rowTitle}>官网通道 · 免费</Text>
               <Text style={styles.rowSub}>
-                登录厂商官网账号后，官网聊天界面直接嵌入首页使用，用你的订阅额度，不用跳转其他页面
+                登录厂商官网账号后，点模型即全屏打开官网聊天，用你的订阅额度，聊完返回首页
               </Text>
             </View>
           </View>

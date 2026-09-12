@@ -36,7 +36,7 @@ const CHANNEL_LABEL: Record<ChannelType, string> = {
 
 // 选中通道后展开一句话说明差异（audit-10）
 const CHANNEL_DESC: Record<ChannelType, string> = {
-  web: "登录一次官网账号后，对话直接嵌入首页进行（不跳转页面），免费用你的订阅额度",
+  web: "登录一次官网账号后，点模型即全屏打开官网对话，免费用你的订阅额度",
   customTabs:
     "Google 禁止应用内对话：在系统浏览器标签里聊（共享 Chrome 登录态），首页点悬浮球有一键打开按钮",
   api: "填入 API Key，在统一的原生聊天界面对话，按 Token 计费，支持流式与本地历史",
@@ -347,7 +347,7 @@ export default function ConfigScreen({ onOpenWeb, onBack }: Props) {
                       <Text style={styles.hint}>
                         {channel === "customTabs"
                           ? "首次在此打开浏览器登录；之后到「对话」页点模型，在浏览器标签中开聊（Google 政策不允许应用内嵌）"
-                          : "首次在此登录官网账号即可；之后到「对话」页点模型，官网聊天界面直接嵌入首页使用（免费用订阅额度）"}
+                          : "首次在此登录官网账号即可；之后到「对话」页点模型，官网聊天界面即全屏打开（免费用订阅额度）"}
                       </Text>
                       <Pressable
                         style={styles.primaryBtn}

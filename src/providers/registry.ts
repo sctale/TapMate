@@ -54,19 +54,6 @@ export const PROVIDERS: ProviderDef[] = [
     apiDocsUrl: "https://bailian.console.aliyun.com/",
     defaultModels: ["qwen-turbo", "qwen-plus", "qwen-max"],
   },
-  {
-    id: "doubao",
-    name: "豆包",
-    emoji: "🫘",
-    color: "#00D68F",
-    webUrl: "https://www.doubao.com/chat/",
-    preferredChannel: "web",
-    apiProtocol: "openai-compatible",
-    apiBaseUrl: "https://ark.cn-beijing.volces.com/api/v3",
-    apiDocsUrl:
-      "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey",
-    defaultModels: ["doubao-1-5-pro-32k"],
-  },
 ];
 
 // 按 id 查厂商

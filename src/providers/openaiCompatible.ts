@@ -3,7 +3,7 @@ import type { ChatMessage, StreamHandlers } from "../types";
 import { friendlyStreamError } from "./errors";
 
 // ===== OpenAI 兼容协议适配器（SSE 流式）=====
-// 覆盖：OpenAI / DeepSeek / 通义千问（DashScope 兼容模式）/ 豆包（火山方舟）/ OpenRouter 等
+// 覆盖：OpenAI / DeepSeek / 通义千问（DashScope 兼容模式）/ OpenRouter 等
 
 export interface OpenAICompatConfig {
   apiKey: string;

@@ -32,9 +32,7 @@ import MessageBubble from "../components/MessageBubble";
 import CompareSheet from "../components/CompareSheet";
 import SessionHistory from "../components/SessionHistory";
 import WelcomeModal from "../components/WelcomeModal";
-import InlineWebChat, {
-  type InlineWebHandle,
-} from "../components/InlineWebChat";
+import InlineWebChat from "../components/InlineWebChat";
 import ModelBall, {
   clampBallRatio,
   type BallAction,
@@ -61,7 +59,7 @@ const IDLE_TIMEOUT_MS = 45000;
 
 // 首页对话页（v0.4.0 悬浮球版）：无顶栏无 dock，一颗球承载模型切换/对比/历史/配置
 // 流式对话（可停止/思考过程）+ ⚖️ 并发对比 + 本地持久化 + 历史会话
-// 官网通道（web）模型：官网会话直接嵌入首页内容区；customTabs：浏览器引导卡片
+// 官网通道（web）模型：官网对话为全屏页面；customTabs：浏览器引导卡片
 export default function HomeScreen({
   inlineWebProviderId,
   onInlineWebConsumed,
@@ -74,7 +72,7 @@ export default function HomeScreen({
   const insets = useSafeAreaInsets();
   const { configs, loaded, dynamicModels } = useProviders();
   const [model, setModel] = useState<ModelRef | null>(null);
-  // 官网嵌入态没有输入区，toast 下移避免悬在半空（D16）
+  // 官网全屏页没有输入区，toast 下移避免悬在半空
   const toast = useToast(model?.modelId === "$web$" ? 48 : 96);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -84,10 +82,8 @@ export default function HomeScreen({
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
   const [showJump, setShowJump] = useState(false);
   const [inlineDismissed, setInlineDismissed] = useState(false);
-  // 悬浮球（v0.4.0）：位置比例持久化 + 嵌入网页后退可用性 + 命令式控制句柄
+  // 悬浮球（v0.4.0）：位置比例持久化
   const [ballRatio, setBallRatio] = useState(0.22);
-  const [webCanGoBack, setWebCanGoBack] = useState(false);
-  const webCtl = useRef<InlineWebHandle>(null);
   // 并发对比模式（v0.3.0）
   const [compareOn, setCompareOn] = useState(false);
   const [compareSel, setCompareSel] = useState<ModelRef[]>([]);
@@ -106,7 +102,7 @@ export default function HomeScreen({
   const activeChannel = model
     ? configs.get(model.providerId)?.channel
     : undefined;
-  const isInlineWeb = isWebModel && activeChannel === "web"; // 应用内嵌入模式
+  const isInlineWeb = isWebModel && activeChannel === "web"; // 应用内全屏对话模式
   const isBrowserGate = isWebModel && activeChannel === "customTabs"; // 浏览器模式（Google 政策）
   const showInline = isInlineWeb && !inlineDismissed;
   const compareActive = compareOn && !isWebModel;
@@ -232,7 +228,7 @@ export default function HomeScreen({
     };
   }, [loaded, showHint]);
 
-  // 登录确认 → 自动选中该厂商并进入首页嵌入对话（修复「点我已登录后无处可用」）
+  // 登录确认 → 自动选中该厂商并进入官网全屏对话（修复「点我已登录后无处可用」）
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     if (!inlineWebProviderId || !loaded) return;
@@ -249,7 +245,7 @@ export default function HomeScreen({
       toast.show(
         configs.get(p.id)?.channel === "customTabs"
           ? `已连接 ${p.name}，在首页点「在浏览器打开」即可对话`
-          : `已连接 ${p.name}，官网对话已嵌入首页，直接聊`,
+          : `已连接 ${p.name}，已进入官网全屏对话`,
       );
     }
     onInlineWebConsumed();
@@ -422,7 +418,7 @@ export default function HomeScreen({
     );
   };
 
-  // 切换模型：中断在途流 + 退出对比 + 开新会话；点胶囊即（重新）打开嵌入对话
+  // 切换模型：中断在途流 + 退出对比 + 开新会话；选模型即（重新）可打开官网全屏对话
   const selectModel = useCallback(
     (m: ModelRef) => {
       abortStreams();
@@ -646,7 +642,7 @@ export default function HomeScreen({
     if (isBrowserGate)
       return `${model?.label ?? ""} 的对话在系统浏览器中进行（Google 政策），下方一键打开`;
     if (isWebModel)
-      return `${model?.label ?? ""} 的官网界面会直接嵌入这里，点右侧悬浮球即可打开`;
+      return `${model?.label ?? ""} 的官网对话会全屏打开，点右侧悬浮球→「打开官网对话（全屏）」`;
     return `在下方输入消息开始和 ${model?.label ?? ""} 对话`;
   }, [
     available.length,
@@ -727,34 +723,11 @@ export default function HomeScreen({
       label: "历史会话",
       onClick: () => requestAnimationFrame(() => setHistoryVisible(true)),
     });
-    if (showInline) {
-      list.push(
-        {
-          key: "web-back",
-          emoji: "‹",
-          label: "网页后退",
-          onClick: () => webCtl.current?.goBack(),
-          dim: !webCanGoBack,
-        },
-        {
-          key: "web-reload",
-          emoji: "⟳",
-          label: "刷新官网",
-          onClick: () => webCtl.current?.reload(),
-        },
-        {
-          key: "web-exit",
-          emoji: "✕",
-          label: "退出嵌入对话",
-          onClick: () => setInlineDismissed(true),
-        },
-      );
-    }
     if (isWebModel && inlineDismissed && !isBrowserGate) {
       list.push({
         key: "web-open",
         emoji: "🌐",
-        label: `打开 ${model?.label ?? "官网"} 嵌入对话`,
+        label: `打开 ${model?.label ?? "官网"} 对话（全屏）`,
         onClick: () => setInlineDismissed(false),
       });
     }
@@ -771,8 +744,6 @@ export default function HomeScreen({
     compareSel.length,
     toggleCompare,
     newChat,
-    showInline,
-    webCanGoBack,
     isWebModel,
     isBrowserGate,
     inlineDismissed,
@@ -785,7 +756,7 @@ export default function HomeScreen({
   const headerLabel = compareActive
     ? `并发对比 · ${compareSel.length} 个模型`
     : model && isWebModel
-      ? `${getProvider(model.providerId)?.name ?? ""} · 官网嵌入`
+      ? `${getProvider(model.providerId)?.name ?? ""} · 官网对话`
       : model && model.modelId !== COMPARE
         ? `${getProvider(model.providerId)?.name ?? ""} · ${model.modelId}`
         : "TapMate · 未选择模型";
@@ -809,13 +780,11 @@ export default function HomeScreen({
       style={styles.wrap}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={{ flex: 1, paddingTop: insets.top + 6 }}>
+      <View style={{ flex: 1, paddingTop: showInline ? 0 : insets.top + 6 }}>
         {showInline && !compareActive ? (
           <InlineWebChat
-            ref={webCtl}
             providerId={model!.providerId}
             onExit={() => setInlineDismissed(true)}
-            onCanGoBackChange={setWebCanGoBack}
           />
         ) : isBrowserGate && !compareActive ? (
           <BrowserGate providerId={model!.providerId} />
@@ -865,7 +834,7 @@ export default function HomeScreen({
                       onPress={() => setInlineDismissed(false)}
                     >
                       <Text style={styles.openInlineBtnText}>
-                        🌐 嵌入 {model?.label ?? "官网"} 对话，直接在首页聊
+                        🌐 打开 {model?.label ?? "官网"} 对话（全屏）
                       </Text>
                     </Pressable>
                   ) : null}
@@ -886,7 +855,7 @@ export default function HomeScreen({
           </>
         )}
       </View>
-      {/* API 模型才有原生输入区；官网模型的对话在嵌入网页/浏览器内进行 */}
+      {/* API 模型才有原生输入区；官网模型的对话在全屏官网页/浏览器内进行 */}
       {!isWebModel ? (
         <View
           style={[
@@ -986,11 +955,12 @@ export default function HomeScreen({
         onConfirm={confirmCompare}
       />
 
-      <SessionHistory
-        visible={historyVisible}
-        onClose={() => setHistoryVisible(false)}
-        onOpen={openSession}
-      />
+      {historyVisible ? (
+        <SessionHistory
+          onClose={() => setHistoryVisible(false)}
+          onOpen={openSession}
+        />
+      ) : null}
       <WelcomeModal
         visible={welcomeVisible}
         onDismiss={() => {
@@ -999,17 +969,19 @@ export default function HomeScreen({
         }}
       />
 
-      {/* 悬浮球（v0.4.0）：唯一的模型切换与功能入口 */}
-      <ModelBall
-        groups={groups}
-        actions={actions}
-        headerLabel={headerLabel}
-        ballProvider={ballProvider}
-        ballEmoji={ballEmoji}
-        ballBadge={ballBadge}
-        ratio={ballRatio}
-        onRatioChange={onBallRatio}
-      />
+      {/* 悬浮球（v0.4.0）：唯一的模型切换与功能入口；官网全屏页/历史覆盖层内隐藏 */}
+      {!showInline && !historyVisible ? (
+        <ModelBall
+          groups={groups}
+          actions={actions}
+          headerLabel={headerLabel}
+          ballProvider={ballProvider}
+          ballEmoji={ballEmoji}
+          ballBadge={ballBadge}
+          ratio={ballRatio}
+          onRatioChange={onBallRatio}
+        />
+      ) : null}
 
       {toast.node}
     </KeyboardAvoidingView>

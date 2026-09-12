@@ -14,9 +14,9 @@ Tap 系列应用之一，UI 延续 [TapLedger（一点账本）](https://github.
 
 ## 功能特性
 
-- **多模型聚合**：5 家厂商内置——ChatGPT、Gemini、DeepSeek、通义千问、豆包；国内厂商统一走 OpenAI 兼容协议，模型一键切换（厂商色点胶囊）
-- **官网通道 = 首页嵌入对话**：选官网通道模型后，官网聊天界面（含输入框）直接嵌入首页内容区，输在首页、看在首页，全程零跳转；顶栏提供 ⟳ 刷新 / ‹ 后退 / ✕ 退出
-  - 🌐 **应用内官网**：WebView 打开官方域名，登录后免费用订阅额度；登录容器只承担首次登录职责，确认后自动切回首页进入对话
+- **多模型聚合**：4 家厂商内置——ChatGPT、Gemini、DeepSeek、通义千问；国内厂商统一走 OpenAI 兼容协议，模型一键切换（厂商色点胶囊）
+- **官网通道 = 全屏对话页**：点官网通道模型即全屏打开官网聊天（硬件加速 WebView + 顶部控制条 ‹ 后退 / ⟳ 刷新 / ✕ 返回），Msty 式外壳、零 App 内跳转；悬浮球在该模式自动隐藏
+  - 🌐 **应用内官网**：WebView 打开官方域名，登录后免费用订阅额度；登录与对话共用此全屏页
   - 🖥️ **系统浏览器（customTabs）**：Chrome Custom Tabs 打开官网，共享系统 Chrome 登录态（Gemini 官方合规方案；插在首页的合规引导卡说明 Google 政策并提供一键打开）
   - 🔑 **API Key**：官方 API + 统一原生对话界面（SSE 流式输出、本地历史、自定义 Base URL）
 - **流式对话**：SSE 流式渲染（120ms 节流），可中断在途回答（发送键变「■ 停止」），新对话 / 换模型 / 开历史不再被旧流锁住
@@ -83,20 +83,21 @@ node scripts/sync-version.js 0.2.1
 ```
 src/
 ├── components/         # UI 组件
-│   ├── MessageBubble.tsx       # 消息气泡（用户靛蓝 / 模型白卡，长按菜单）
-│   ├── ModelSwitcher.tsx       # 模型切换器（厂商色点胶囊，选中滚入视野）
-│   ├── SessionHistory.tsx      # 历史会话（搜索 + 按时间分组）
-│   ├── InlineWebChat.tsx       # 官网通道首页嵌入式对话（v0.2.1）
+│   ├── MessageBubble.tsx       # 消息气泡（用户靛蓝 / 模型白卡，长按菜单+内联重试）
+│   ├── ModelBall.tsx           # 悬浮球（模型切换/对比/历史/配置统一入口，可拖拽）
+│   ├── ballMath.ts             # 悬浮球几何纯函数（可单测）
+│   ├── CompareSheet.tsx        # ⚖️ 并发对比模型多选
+│   ├── SessionHistory.tsx      # 历史会话（页内覆盖层：搜索 + 分组 + 虚拟化）
+│   ├── InlineWebChat.tsx       # 官网通道全屏对话页（硬件 WebView + 顶部控制条）
 │   ├── MarkdownText.tsx        # 轻量 Markdown 渲染器（代码/标题/列表…）
-│   ├── TabBar.tsx              # 底部导航（对话 / 配置）
 │   ├── Toast.tsx               # 全局轻提示
 │   └── WelcomeModal.tsx        # 首启双通道说明卡（一次性）
 ├── screens/            # 页面
-│   ├── HomeScreen.tsx          # 对话页（输入 + 流式渲染 + 官网嵌入）
-│   ├── ConfigScreen.tsx        # 配置页（厂商卡片/通道切换/API Key/登录入口）
+│   ├── HomeScreen.tsx          # 对话页（输入 + 流式渲染 + 对比 + 悬浮球调度）
+│   ├── ConfigScreen.tsx        # 配置页（厂商卡片/通道切换/API Key/动态模型同步）
 │   └── WebChatScreen.tsx       # 官网登录容器（WebView + Custom Tabs）
 ├── providers/          # 厂商注册表 + 对话引擎
-│   ├── registry.ts             # 厂商注册表（内置 6 家）
+│   ├── registry.ts             # 厂商注册表（内置 4 家：ChatGPT/Gemini/DeepSeek/通义千问）
 │   ├── openaiCompatible.ts     # OpenAI 兼容适配器（国内厂商）
 │   ├── gemini.ts               # Gemini 适配器
 │   ├── chatEngine.ts           # 对话引擎（协议分发 + 上下文裁剪 + 流式调度）
