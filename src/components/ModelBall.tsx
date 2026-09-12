@@ -29,6 +29,8 @@ export interface BallAction {
   onClick: () => void;
   dim?: boolean;
   accent?: boolean;
+  /** 动作球功能底色（语义色 token，缺省中性灰） */
+  tint?: string;
 }
 
 export interface BallGroup {
@@ -194,9 +196,6 @@ export default function ModelBall({
                     >
                       {g.provider.name}
                     </Text>
-                    {g.selected ? (
-                      <Text style={styles.mSel}>✓ 对比中</Text>
-                    ) : null}
                   </View>
                   <View
                     style={[
@@ -208,7 +207,12 @@ export default function ModelBall({
                       },
                     ]}
                   >
-                    <BrandGlyph provider={g.provider} size={MBALL - 16} />
+                    <BrandGlyph provider={g.provider} size={MBALL - 14} />
+                    {g.selected ? (
+                      <View style={styles.selBadge}>
+                        <Text style={styles.selBadgeText}>✓</Text>
+                      </View>
+                    ) : null}
                   </View>
                   {g.sub && g.sub.length > 1 ? (
                     <Pressable
@@ -280,7 +284,7 @@ export default function ModelBall({
                 <View
                   style={[
                     styles.mball,
-                    styles.aball,
+                    { backgroundColor: a.tint ?? COLORS.bgAlt },
                     a.accent && {
                       borderColor: COLORS.accent,
                       borderWidth: 2,
@@ -421,7 +425,6 @@ const styles = StyleSheet.create({
   mrowInfo: { flex: 1 },
   mName: { fontSize: FONT_SIZE.sm, color: COLORS.text, fontWeight: "600" },
   mNameOn: { color: COLORS.accentDark },
-  mSel: { fontSize: FONT_SIZE.xs, color: COLORS.accentDark, fontWeight: "700" },
   mball: {
     width: MBALL,
     height: MBALL,
@@ -429,8 +432,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  aball: { backgroundColor: COLORS.bgAlt },
-  aEmoji: { fontSize: FONT_SIZE.md },
+  selBadge: {
+    position: "absolute",
+    top: -3,
+    right: -3,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: COLORS.accent,
+    borderWidth: 1.5,
+    borderColor: COLORS.white,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  selBadgeText: {
+    color: COLORS.white,
+    fontSize: 9,
+    fontWeight: "800",
+    lineHeight: 12,
+  },
+  aEmoji: { fontSize: 16 },
   subToggle: { paddingHorizontal: 2, minWidth: 18, textAlign: "center" },
   subToggleText: { fontSize: FONT_SIZE.xs, color: COLORS.textTertiary },
   subRow: {

@@ -698,6 +698,7 @@ export default function HomeScreen({
       list.push({
         key: "cmp-edit",
         emoji: "🧐",
+        tint: COLORS.accentSoft,
         label: `改选模型（${compareSel.length} 个）`,
         onClick: () => setCompareSheet(true),
       });
@@ -711,15 +712,23 @@ export default function HomeScreen({
       list.push({
         key: "cmp",
         emoji: "⚖️",
+        tint: COLORS.accentSoft,
         label: "并发对比",
         onClick: toggleCompare,
         dim: apiAvailable.length < 2,
       });
     }
-    list.push({ key: "new", emoji: "✚", label: "新对话", onClick: newChat });
+    list.push({
+      key: "new",
+      emoji: "✚",
+      label: "新对话",
+      onClick: newChat,
+      tint: "rgba(129,199,132,0.16)",
+    });
     list.push({
       key: "his",
       emoji: "🕘",
+      tint: "rgba(230,81,0,0.10)",
       label: "历史会话",
       onClick: () => requestAnimationFrame(() => setHistoryVisible(true)),
     });
@@ -727,6 +736,7 @@ export default function HomeScreen({
       list.push({
         key: "web-open",
         emoji: "🌐",
+        tint: "rgba(66,133,244,0.14)",
         label: `打开 ${model?.label ?? "官网"} 对话（全屏）`,
         onClick: () => setInlineDismissed(false),
       });
