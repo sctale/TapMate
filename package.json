@@ -1,6 +1,6 @@
 {
   "name": "tapmate",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "main": "index.ts",
   "dependencies": {
     "expo": "~56.0.12",
@@ -15,6 +15,7 @@
     "react-native": "0.85.3",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-sse": "^1.2.1",
+    "react-native-svg": "15.15.4",
     "react-native-webview": "13.16.1"
   },
   "devDependencies": {
@@ -23,6 +24,7 @@
     "eslint-config-expo": "~56.0.4",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.9.6",
+    "simple-icons": "^16.30.0",
     "typescript": "~6.0.3",
     "vitest": "^5.0.0"
   },

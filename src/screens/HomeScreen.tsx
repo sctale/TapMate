@@ -645,12 +645,9 @@ export default function HomeScreen({
     return [...byP.entries()]
       .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
       .map(([pid, list]) => {
-        const p = getProvider(pid);
+        const provider = getProvider(pid)!;
         return {
-          providerId: pid,
-          emoji: p?.emoji ?? "🤖",
-          name: p?.name ?? pid,
-          color: p?.color ?? COLORS.accent,
+          provider,
           active: !compareActive && model?.providerId === pid,
           selected:
             compareActive && compareSel.some((c) => c.providerId === pid),
@@ -769,10 +766,14 @@ export default function HomeScreen({
       : model && model.modelId !== COMPARE
         ? `${getProvider(model.providerId)?.name ?? ""} · ${model.modelId}`
         : "TapMate · 未选择模型";
+  const ballProvider =
+    !compareActive && model && model.modelId !== COMPARE
+      ? getProvider(model.providerId)
+      : null;
   const ballEmoji = compareActive
     ? "⚖️"
-    : model
-      ? (getProvider(model.providerId)?.emoji ?? "🌐")
+    : model && model.modelId === COMPARE
+      ? "⚖️"
       : "🤖";
   const ballBadge = compareActive
     ? String(compareSel.length)
@@ -801,6 +802,10 @@ export default function HomeScreen({
               ref={listRef}
               data={messages}
               keyExtractor={(m) => m.id}
+              initialNumToRender={8}
+              maxToRenderPerBatch={8}
+              windowSize={9}
+              removeClippedSubviews
               renderItem={({ item }) => (
                 <MessageBubble
                   msg={item}
@@ -973,6 +978,7 @@ export default function HomeScreen({
         groups={groups}
         actions={actions}
         headerLabel={headerLabel}
+        ballProvider={ballProvider}
         ballEmoji={ballEmoji}
         ballBadge={ballBadge}
         ratio={ballRatio}

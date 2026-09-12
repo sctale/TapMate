@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   Alert,
+  InteractionManager,
   Modal,
   Pressable,
   ScrollView,
@@ -16,6 +17,7 @@ import {
   searchSessions,
 } from "../database/chatDB";
 import { getProvider } from "../providers/registry";
+import { BrandGlyph } from "./ModelBall";
 import type { ChatSession } from "../types";
 
 interface Props {
@@ -43,9 +45,15 @@ export default function SessionHistory({ visible, onClose, onOpen }: Props) {
       setQuery("");
       return;
     }
-    setSearching(query.trim().length > 0);
-    const t = setTimeout(() => reload(query), query.trim() ? 250 : 0);
-    return () => clearTimeout(t);
+    const kw = query.trim();
+    // 打开时等淡入动画结束再查库；输入搜索时仍走短防抖
+    if (kw) {
+      setSearching(true);
+      const t = setTimeout(() => reload(query), 250);
+      return () => clearTimeout(t);
+    }
+    const task = InteractionManager.runAfterInteractions(() => reload(""));
+    return () => task.cancel();
   }, [visible, query, reload]);
 
   // 删除前二次确认，防误触不可恢复（audit-13）
@@ -124,9 +132,15 @@ export default function SessionHistory({ visible, onClose, onOpen }: Props) {
                           style={styles.rowMain}
                           onPress={() => onOpen(s)}
                         >
-                          <Text style={styles.rowEmoji}>
-                            {isCmp ? "⚖️" : (p?.emoji ?? "💬")}
-                          </Text>
+                          <View style={styles.rowIcon}>
+                            {isCmp ? (
+                              <Text style={styles.rowEmoji}>⚖️</Text>
+                            ) : p ? (
+                              <BrandGlyph provider={p} size={20} />
+                            ) : (
+                              <Text style={styles.rowEmoji}>💬</Text>
+                            )}
+                          </View>
                           <View style={styles.rowInfo}>
                             <Text style={styles.rowTitle} numberOfLines={1}>
                               {s.title}
@@ -224,6 +238,7 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
     padding: SPACING.md,
   },
+  rowIcon: { width: 24, alignItems: "center" },
   rowEmoji: { fontSize: FONT_SIZE.lg },
   rowInfo: { flex: 1 },
   rowTitle: { fontSize: FONT_SIZE.md, color: COLORS.text, fontWeight: "600" },

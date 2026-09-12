@@ -8,32 +8,29 @@ import {
   Text,
   View,
 } from "react-native";
+import { Svg, Path } from "react-native-svg";
 import { COLORS, FONT_SIZE, RADIUS, SPACING } from "../constants";
+import { BRAND_ICONS } from "../constants/brandIcons";
 import { clampBallRatio } from "./ballMath";
+import type { ProviderDef } from "../types";
 
-// 纯函数钳制逻辑在 ballMath.ts（无 RN 依赖，可单测），此处再导出供 HomeScreen 使用
 export { clampBallRatio };
 
-// ===== TapBall 悬浮球（v0.4.0）=====
-// 取代顶部 chrome 与底部 dock：一颗贴右球的悬浮球承载全部导航。
-// 默认显示当前模型（厂商 emoji），点按向下展开菜单：厂商球组 + 动作行；
-// 竖向可拖（松手回弹、位置持久化），不落系统手势区、不抢边缘滑动。
-// 成熟参照：iOS 辅助触控小球、地图类 App 语音悬浮球。
+// ===== TapBall 悬浮球（v0.4.1）=====
+// 球面与展开菜单统一用「球」语言：菜单是一纵列球（品牌矢量图标），名称做左侧小标签。
+// 菜单整体可滚动（v0.4.0 底部条目点不到的修复）。竖向拖拽、松手吸边、位置持久化。
 
 export interface BallAction {
   key: string;
   emoji: string;
   label: string;
   onClick: () => void;
-  dim?: boolean; // 置灰但可见（如网页不可后退）
-  accent?: boolean; // 高亮（如对比模式开启中）
+  dim?: boolean;
+  accent?: boolean;
 }
 
 export interface BallGroup {
-  providerId: string;
-  emoji: string;
-  name: string;
-  color: string;
+  provider: ProviderDef;
   active: boolean; // 当前使用厂商
   selected?: boolean; // 已选入对比
   onPick: () => void;
@@ -44,18 +41,41 @@ interface Props {
   groups: BallGroup[];
   actions: BallAction[];
   headerLabel: string;
+  /** 球面显示的品牌（当前模型厂商）；对比模式传 null 用 ballEmoji */
+  ballProvider?: ProviderDef | null;
   ballEmoji: string;
   ballBadge?: string;
-  ratio: number; // 球垂直位置（0-1，父层持久化）
+  ratio: number;
   onRatioChange: (r: number) => void;
 }
 
 const BALL = 46;
+const MBALL = 40; // 菜单内球径
+
+/** 品牌矢量图标；无矢量源回落 emoji */
+export function BrandGlyph({
+  provider,
+  size,
+}: {
+  provider: ProviderDef;
+  size: number;
+}) {
+  const icon = BRAND_ICONS[provider.id];
+  if (!icon) {
+    return <Text style={{ fontSize: size * 0.82 }}>{provider.emoji}</Text>;
+  }
+  return (
+    <Svg width={size} height={size} viewBox={icon.viewBox}>
+      <Path d={icon.path} fill={provider.color} />
+    </Svg>
+  );
+}
 
 export default function ModelBall({
   groups,
   actions,
   headerLabel,
+  ballProvider,
   ballEmoji,
   ballBadge,
   ratio,
@@ -105,109 +125,134 @@ export default function ModelBall({
         <Pressable style={styles.mask} onPress={() => setOpen(false)} />
       ) : null}
 
-      {/* 展开菜单：贴着球下方，右对齐 */}
+      {/* 展开菜单：一纵列球（品牌图标），左缘名称标签；整体可滚动 */}
       {open && h > 0 ? (
-        <View
-          style={[styles.menu, { top: Math.min(top + BALL + 6, h * 0.45) }]}
-          onStartShouldSetResponder={() => true}
-        >
+        <View style={[styles.menu, { top: Math.min(top + BALL + 6, h * 0.3) }]}>
           <Text style={styles.menuHead}>{headerLabel}</Text>
-
-          {groups.map((g) => (
-            <View key={g.providerId}>
-              <Pressable
-                style={[styles.row, g.active && styles.rowOn]}
-                onPress={() => run(g.onPick)}
-              >
-                <View
-                  style={[styles.gEmoji, { backgroundColor: g.color + "1A" }]}
+          <ScrollView
+            style={styles.menuScroll}
+            showsVerticalScrollIndicator={false}
+          >
+            {groups.map((g) => (
+              <View key={g.provider.id}>
+                <Pressable
+                  style={[styles.mrow, g.active && styles.mrowOn]}
+                  onPress={() => run(g.onPick)}
                 >
-                  <Text style={styles.gEmojiText}>{g.emoji}</Text>
-                </View>
-                <Text
-                  style={[styles.gName, g.active && styles.gNameOn]}
-                  numberOfLines={1}
-                >
-                  {g.name}
-                </Text>
-                {g.selected ? <Text style={styles.gSel}>✓对比</Text> : null}
-                {g.sub && g.sub.length > 1 ? (
-                  <Pressable
-                    style={styles.subToggle}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    onPress={() =>
-                      setSubOpen(subOpen === g.providerId ? null : g.providerId)
-                    }
-                  >
-                    <Text style={styles.subToggleText}>
-                      {subOpen === g.providerId ? "▴" : "▾"}
-                    </Text>
-                  </Pressable>
-                ) : null}
-              </Pressable>
-              {g.sub && subOpen === g.providerId ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.subRow}
-                >
-                  {g.sub.map((s) => (
-                    <Pressable
-                      key={s.modelId}
-                      style={[styles.subChip, s.active && styles.subChipOn]}
-                      onPress={() => run(s.onPick)}
+                  <View style={styles.mrowInfo}>
+                    <Text
+                      style={[styles.mName, g.active && styles.mNameOn]}
+                      numberOfLines={1}
                     >
-                      <Text
-                        style={[
-                          styles.subChipText,
-                          s.active && styles.subChipTextOn,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {s.modelId}
+                      {g.provider.name}
+                    </Text>
+                    {g.selected ? (
+                      <Text style={styles.mSel}>✓ 对比中</Text>
+                    ) : null}
+                  </View>
+                  <View
+                    style={[
+                      styles.mball,
+                      { backgroundColor: g.provider.color + "1A" },
+                      g.active && {
+                        borderColor: g.provider.color,
+                        borderWidth: 2,
+                      },
+                    ]}
+                  >
+                    <BrandGlyph provider={g.provider} size={MBALL - 16} />
+                  </View>
+                  {g.sub && g.sub.length > 1 ? (
+                    <Pressable
+                      style={styles.subToggle}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      onPress={() =>
+                        setSubOpen(
+                          subOpen === g.provider.id ? null : g.provider.id,
+                        )
+                      }
+                    >
+                      <Text style={styles.subToggleText}>
+                        {subOpen === g.provider.id ? "▴" : "▾"}
                       </Text>
                     </Pressable>
-                  ))}
-                </ScrollView>
-              ) : null}
-            </View>
-          ))}
-
-          {groups.length > 0 && actions.length > 0 ? (
-            <View style={styles.sep} />
-          ) : null}
-
-          {actions.map((a) => (
-            <Pressable
-              key={a.key}
-              style={[
-                styles.row,
-                a.dim && styles.rowDim,
-                a.accent && styles.rowOn,
-              ]}
-              onPress={() => run(a.onClick)}
-            >
-              <View style={[styles.gEmoji, { backgroundColor: COLORS.bgAlt }]}>
-                <Text style={styles.gEmojiText}>{a.emoji}</Text>
+                  ) : null}
+                </Pressable>
+                {g.sub && subOpen === g.provider.id ? (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.subRow}
+                  >
+                    {g.sub.map((s) => (
+                      <Pressable
+                        key={s.modelId}
+                        style={[styles.subChip, s.active && styles.subChipOn]}
+                        onPress={() => run(s.onPick)}
+                      >
+                        <Text
+                          style={[
+                            styles.subChipText,
+                            s.active && styles.subChipTextOn,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {s.modelId}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                ) : null}
               </View>
-              <Text
-                style={[styles.gName, a.accent && styles.gNameOn]}
-                numberOfLines={1}
-              >
-                {a.label}
-              </Text>
-            </Pressable>
-          ))}
+            ))}
 
-          {groups.length === 0 ? (
-            <Text style={styles.menuEmpty}>
-              还没连接模型 · 点「去配置」添加一个
-            </Text>
-          ) : null}
+            {groups.length > 0 && actions.length > 0 ? (
+              <View style={styles.sep} />
+            ) : null}
+
+            {actions.map((a) => (
+              <Pressable
+                key={a.key}
+                style={[
+                  styles.mrow,
+                  a.accent && styles.mrowOn,
+                  a.dim && styles.mrowDim,
+                ]}
+                onPress={() => run(a.onClick)}
+              >
+                <View style={styles.mrowInfo}>
+                  <Text
+                    style={[styles.mName, a.accent && styles.mNameOn]}
+                    numberOfLines={1}
+                  >
+                    {a.label}
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    styles.mball,
+                    styles.aball,
+                    a.accent && {
+                      borderColor: COLORS.accent,
+                      borderWidth: 2,
+                    },
+                  ]}
+                >
+                  <Text style={styles.aEmoji}>{a.emoji}</Text>
+                </View>
+              </Pressable>
+            ))}
+
+            {groups.length === 0 ? (
+              <Text style={styles.menuEmpty}>
+                还没连接模型 · 点下方「配置厂商与 Key」添加
+              </Text>
+            ) : null}
+          </ScrollView>
         </View>
       ) : null}
 
-      {/* 悬浮球（半贴右边，竖向可拖） */}
+      {/* 悬浮球：品牌矢量图标（对比态/无厂商回落 emoji） */}
       {h > 0 ? (
         <Animated.View
           style={[
@@ -227,7 +272,11 @@ export default function ModelBall({
             accessibilityRole="button"
             accessibilityLabel="模型与功能菜单"
           >
-            <Text style={styles.ballEmoji}>{ballEmoji}</Text>
+            {ballProvider ? (
+              <BrandGlyph provider={ballProvider} size={BALL - 18} />
+            ) : (
+              <Text style={styles.ballEmoji}>{ballEmoji}</Text>
+            )}
             {ballBadge ? (
               <Text style={styles.ballBadge}>{ballBadge}</Text>
             ) : null}
@@ -261,7 +310,7 @@ const styles = StyleSheet.create({
     width: BALL,
     height: BALL,
     borderRadius: RADIUS.pill,
-    backgroundColor: "rgba(255,255,255,0.94)",
+    backgroundColor: "rgba(255,255,255,0.96)",
     borderWidth: 1,
     borderColor: COLORS.border,
     alignItems: "center",
@@ -274,12 +323,7 @@ const styles = StyleSheet.create({
   },
   ballPressed: { transform: [{ scale: 0.93 }] },
   ballEmoji: { fontSize: 22 },
-  ballBadge: {
-    position: "absolute",
-    right: 4,
-    bottom: 3,
-    fontSize: 10,
-  },
+  ballBadge: { position: "absolute", right: 3, bottom: 2, fontSize: 11 },
   ballOpenDot: {
     position: "absolute",
     top: 5,
@@ -292,13 +336,14 @@ const styles = StyleSheet.create({
   menu: {
     position: "absolute",
     right: 8,
-    width: 248,
-    maxHeight: "70%",
+    width: 210,
+    maxHeight: "62%",
     backgroundColor: "rgba(255,255,255,0.98)",
     borderRadius: RADIUS.lg,
     borderWidth: 1,
     borderColor: COLORS.border,
-    paddingVertical: SPACING.sm,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.xs,
     elevation: 8,
     shadowColor: "#000",
     shadowOpacity: 0.14,
@@ -312,38 +357,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md,
     paddingBottom: SPACING.xs,
   },
-  row: {
+  menuScroll: { flexGrow: 0 },
+  mrow: {
     flexDirection: "row",
     alignItems: "center",
     gap: SPACING.sm,
     paddingHorizontal: SPACING.md,
-    paddingVertical: 9,
-    minHeight: 44,
+    paddingVertical: 7,
+    minHeight: 54,
   },
-  rowOn: { backgroundColor: COLORS.accentSoft },
-  rowDim: { opacity: 0.45 },
-  gEmoji: {
-    width: 32,
-    height: 32,
+  mrowOn: { backgroundColor: COLORS.accentSoft },
+  mrowDim: { opacity: 0.45 },
+  mrowInfo: { flex: 1 },
+  mName: { fontSize: FONT_SIZE.sm, color: COLORS.text, fontWeight: "600" },
+  mNameOn: { color: COLORS.accentDark },
+  mSel: { fontSize: FONT_SIZE.xs, color: COLORS.accentDark, fontWeight: "700" },
+  mball: {
+    width: MBALL,
+    height: MBALL,
     borderRadius: RADIUS.pill,
     alignItems: "center",
     justifyContent: "center",
   },
-  gEmojiText: { fontSize: FONT_SIZE.md },
-  gName: {
-    flex: 1,
-    fontSize: FONT_SIZE.sm,
-    color: COLORS.text,
-    fontWeight: "600",
-  },
-  gNameOn: { color: COLORS.accentDark },
-  gSel: { fontSize: FONT_SIZE.xs, color: COLORS.accentDark, fontWeight: "700" },
-  subToggle: { paddingHorizontal: 4 },
+  aball: { backgroundColor: COLORS.bgAlt },
+  aEmoji: { fontSize: FONT_SIZE.md },
+  subToggle: { paddingHorizontal: 2, minWidth: 18, textAlign: "center" },
   subToggleText: { fontSize: FONT_SIZE.xs, color: COLORS.textTertiary },
   subRow: {
     paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.xs,
+    paddingBottom: SPACING.sm,
     gap: SPACING.xs,
+    alignItems: "center",
   },
   subChip: {
     paddingHorizontal: SPACING.sm,
@@ -352,7 +396,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.bgAlt,
     borderWidth: 1,
     borderColor: COLORS.border,
-    maxWidth: 200,
+    maxWidth: 190,
   },
   subChipOn: { borderColor: COLORS.accent, backgroundColor: COLORS.accentSoft },
   subChipText: {
@@ -370,6 +414,7 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.xs,
     color: COLORS.textTertiary,
     paddingHorizontal: SPACING.md,
-    paddingTop: SPACING.xs,
+    paddingVertical: SPACING.sm,
+    lineHeight: 18,
   },
 });

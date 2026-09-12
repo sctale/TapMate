@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo, useMemo } from "react";
 import { Linking, Platform, StyleSheet, Text, View } from "react-native";
 import { COLORS, FONT_SIZE, RADIUS, SPACING } from "../constants";
 
@@ -164,8 +164,8 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
   return nodes;
 }
 
-export default function MarkdownText({ source }: { source: string }) {
-  const blocks = parseBlocks(source);
+function MarkdownText({ source }: { source: string }) {
+  const blocks = useMemo(() => parseBlocks(source), [source]);
   return (
     <View style={styles.wrap}>
       {blocks.map((b, idx) => {
@@ -236,6 +236,8 @@ export default function MarkdownText({ source }: { source: string }) {
     </View>
   );
 }
+
+export default memo(MarkdownText);
 
 const MONO = Platform.select({
   android: "monospace",

@@ -19,6 +19,7 @@ import { testApiKey } from "../providers/apiTest";
 import { fetchModelIds } from "../providers/modelList";
 import { friendlyTestReason } from "../providers/errors";
 import { useToast } from "../components/Toast";
+import { BrandGlyph } from "../components/ModelBall";
 import type { ChannelType, ProviderDef } from "../types";
 
 interface Props {
@@ -199,7 +200,7 @@ export default function ConfigScreen({ onOpenWeb, onBack }: Props) {
                 <View
                   style={[styles.icon, { backgroundColor: p.color + "1A" }]}
                 >
-                  <Text style={styles.iconEmoji}>{p.emoji}</Text>
+                  <BrandGlyph provider={p} size={22} />
                 </View>
                 <View style={styles.info}>
                   <Text style={styles.name}>{p.name}</Text>

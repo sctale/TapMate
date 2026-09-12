@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { memo, useEffect, useState } from "react";
 import {
   Animated,
   Easing,
@@ -23,7 +23,7 @@ interface Props {
   onLongPress?: (msg: ChatMessage) => void;
 }
 
-export default function MessageBubble({
+const MessageBubble = memo(function MessageBubble({
   msg,
   thinking,
   tagged,
@@ -91,7 +91,9 @@ export default function MessageBubble({
       </Pressable>
     </View>
   );
-}
+});
+
+export default MessageBubble;
 
 // 三个错峰跳动的小圆点：assistant 占位气泡的空内容态
 function ThinkingDots() {
