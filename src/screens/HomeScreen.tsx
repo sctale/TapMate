@@ -52,6 +52,7 @@ import {
   updateMessage,
 } from "../database/chatDB";
 import { loadSetting, saveSetting } from "../secure/credentials";
+import { contextFor, retryContext } from "./chatContext";
 import type { ChatMessage, ChatSession, ModelRef } from "../types";
 
 // 流式空闲超时：连续 45 秒没有任何增量视为连接悬挂（audit-23）
@@ -354,25 +355,6 @@ export default function HomeScreen({
     [configs],
   );
 
-  // 某模型的上下文：历史用户消息 + 该模型自己的既往回答（对比模式各流互不污染）
-  const contextFor = useCallback(
-    (
-      history: ChatMessage[],
-      t: ModelRef,
-      userMsg: ChatMessage,
-    ): ChatMessage[] => {
-      const mine = history.filter(
-        (m) =>
-          m.role === "user" ||
-          (m.role === "assistant" &&
-            m.modelId === t.modelId &&
-            (m.providerId ?? t.providerId) === t.providerId),
-      );
-      return [...mine, userMsg];
-    },
-    [],
-  );
-
   // 发送消息：单模型 1 条回答；对比模式为每个所选模型各起一流
   const send = async () => {
     const text = input.trim();
@@ -584,16 +566,10 @@ export default function HomeScreen({
       modelId: target.modelId,
       label: target.modelId,
     };
-    const idx = messages.findIndex((m) => m.id === target.id);
-    if (idx < 0) return;
-    let u = idx - 1;
-    while (u >= 0 && messages[u].role !== "user") u--;
-    if (u < 0) return;
-    const context = contextFor(
-      messages.slice(0, idx).filter((m) => m.id !== target.id),
-      t,
-      messages[u],
-    );
+    // v0.5.2 修复：旧实现把提问消息既留在 slice 里又作为 userMsg 追加，
+    // 导致重试时最后一条提问重复发给模型；retryContext 统一剔除后再追加一次
+    const context = retryContext(messages, target.id, t);
+    if (!context) return;
     setMessages((prev) =>
       prev.map((m) =>
         m.id === target.id

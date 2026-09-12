@@ -94,6 +94,17 @@ try {
   if ($pkgLine -notmatch [regex]::Escape("versionName='$Version'")) { Fail "versionName 校验失败（期望 $Version）" }
   if ($pkgLine -notmatch [regex]::Escape("versionCode='$versionCode'")) { Fail "versionCode 校验失败（期望 $versionCode）" }
 
+  # ---------- 5b. 签名者校验（v0.5.2：release 必须用私有 keystore，防 debug key 覆盖安装攻击） ----------
+  # 注意：aapt badging 不含签名信息，必须用 apksigner verify --print-certs（与 aapt 同目录）
+  $apksigner = Join-Path (Split-Path $aapt -Parent) 'apksigner.bat'
+  if (-not (Test-Path $apksigner)) { Fail "未找到 apksigner.bat，无法校验 release 签名。" }
+  $certOut = & $apksigner verify --print-certs $apkPath 2>&1
+  $signerLine = ($certOut | Where-Object { $_ -match 'certificate DN:' }) -join ' '
+  Write-Host "signer: $signerLine" -ForegroundColor Gray
+  if ($signerLine -match 'CN=Android Debug') {
+    Fail "APK 仍用 debug keystore 签名！release 必须配置私有签名（见 README「发布签名」），中止发布。"
+  }
+
   # ---------- 6. 复制 APK 到根目录 ----------
   $apkDest = Join-Path $root "TapMate-v$Version.apk"
   Copy-Item $apkPath $apkDest -Force
@@ -114,11 +125,19 @@ try {
   # ---------- 8. GitHub Release + 上传 APK ----------
   Write-Host "==> gh release create v$Version" -ForegroundColor Cyan
   # Release 说明 = CHANGELOG 中本版本条目正文
+  # v0.5.2 修复：含 [x] 等字符的说明经 --notes 直传会被 PowerShell 通配符干扰，
+  # 改写入临时文件走 --notes-file（UTF-8 无 BOM），用完删除
   $pattern = '(?s)## \[' + [regex]::Escape($Version) + '\] - [^\r\n]*\r?\n(.*?)(?=\r?\n## \[|$)'
   $m = [regex]::Match($changelogRaw, $pattern)
   $notes = if ($m.Success) { $m.Groups[1].Value.Trim() } else { "详见 CHANGELOG.md" }
-  & gh release create "v$Version" --repo sctale/TapMate --title "v$Version" --target main --notes $notes $apkDest
-  if ($LASTEXITCODE -ne 0) { Fail "GitHub Release 创建失败。" }
+  $notesFile = Join-Path ([System.IO.Path]::GetTempPath()) "tapmate-release-notes-$Version.md"
+  [System.IO.File]::WriteAllText($notesFile, $notes, $utf8)
+  try {
+    & gh release create "v$Version" --repo sctale/TapMate --title "v$Version" --target main --notes-file $notesFile $apkDest
+    if ($LASTEXITCODE -ne 0) { Fail "GitHub Release 创建失败。" }
+  } finally {
+    Remove-Item $notesFile -Force -ErrorAction SilentlyContinue
+  }
 
   Write-Host ""
   Write-Host "发布完成：v$Version" -ForegroundColor Green

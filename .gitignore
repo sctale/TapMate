@@ -8,3 +8,9 @@ ios/
 .env
 .env.*
 spark-output/
+
+# 发布产物与签名（v0.5.2：APK 走 GitHub Release，不入库；密钥严禁提交）
+*.apk
+keystore.properties
+keystore/
+.tmp-icons/

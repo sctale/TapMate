@@ -45,7 +45,7 @@ npm test           # vitest 单测
 
 ## 下载安装
 
-正式版 APK 在 [GitHub Releases](https://github.com/sctale/TapMate/releases) 页面下载（`TapMate-v0.5.1.apk`，包名 `com.tapmate.app`）。
+正式版 APK 在 [GitHub Releases](https://github.com/sctale/TapMate/releases) 页面下载（`TapMate-v0.5.2.apk`，包名 `com.tapmate.app`）。
 
 ## 构建与发布
 
@@ -69,6 +69,15 @@ cd android
 .\gradlew assembleRelease
 # 输出：android\app\build\outputs\apk\release\app-release.apk
 ```
+
+### 发布签名（v0.5.2 起）
+
+release APK 使用**私有 keystore** 签名（不再共用公开的 Android debug key，避免同包名恶意 APK 覆盖安装）：
+
+- `keystore/tapmate-release.keystore` + 根目录 `keystore.properties`——**均不入库，请异地备份**；丢失后无法给老用户推送升级
+- `plugins/withReleaseSigning.js` 是 Expo config plugin，`npx expo prebuild` 时自动把签名写进 `android/app/build.gradle`（`android/` 被 gitignore，靠插件持久化）
+- 缺配置文件时回落 debug 签名（仅供本地调试）；发布脚本会用 `aapt` 校验签名者，debug 签名的 release 包直接中止
+- ⚠️ v0.5.2 起证书变更：v0.5.1 及更早版本无法覆盖安装，需先卸载再装
 
 ### 版本号管理
 
@@ -94,6 +103,7 @@ src/
 │   └── WelcomeModal.tsx        # 首启双通道说明卡（一次性）
 ├── screens/            # 页面
 │   ├── HomeScreen.tsx          # 对话页（输入 + 流式渲染 + 对比 + 悬浮球调度）
+│   ├── chatContext.ts          # 上下文构建纯函数（发送 / 单条重试，可单测）
 │   ├── ConfigScreen.tsx        # 配置页（厂商卡片/通道切换/API Key/动态模型同步）
 │   └── WebChatScreen.tsx       # 官网登录容器（WebView + Custom Tabs）
 ├── providers/          # 厂商注册表 + 对话引擎
@@ -113,6 +123,8 @@ src/
 │   └── ProvidersContext.tsx    # 厂商配置全局状态
 ├── constants/          # 设计令牌（配色/间距/圆角/字号/设置 key）
 └── types/              # 类型定义
+plugins/
+└── withReleaseSigning.js       # Expo config plugin：prebuild 注入私有 release 签名
 scripts/
 ├── sync-version.js             # 版本号三处同步
 └── release-app.ps1             # APP 一键发布脚本（版本同步→构建→校验→Release）
@@ -139,4 +151,4 @@ scripts/
 
 ## 版本
 
-当前版本：0.5.1
+当前版本：0.5.2

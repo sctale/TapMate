@@ -1,5 +1,15 @@
 # 更新日志
 
+## [0.5.2] - 2026-09-12
+
+代码审查 P0 修复 + 发布安全加固。
+
+- **修复：重试回答上下文重复**——单条回答「🔁 重试」时，提问消息会被重复发送给模型（既留在历史切片里又作为新提问追加）；抽出 `chatContext.ts` 纯函数并补 4 个回归单测
+- **安全：release APK 改用私有 keystore 签名**——此前 release 与 debug 共用公开的 Android debug key，存在同包名恶意 APK 覆盖安装风险；新增 `plugins/withReleaseSigning.js`（prebuild 自动注入）+ 本地 `keystore.properties`（不入库）
+- **安全：发布脚本双重加固**——`gh release create` 改 `--notes-file` 传递（防 `[x]` 等字符被 PowerShell 通配符干扰）；新增 aapt 签名者校验，debug 签名的 release 包直接中止发布
+- **仓库清理**：历史 APK 产物（v0.4.0–v0.5.1）移出版本控制，`.gitignore` 增加 `*.apk` / `keystore*` / `.tmp-icons/`
+- ⚠️ **升级提示**：本版起签名证书变更，从 v0.5.1 及更早版本无法覆盖安装，需先卸载旧版再安装本 APK（历史会话与已配置 Key 会随卸载清除，请先在配置页记录 Key）
+
 ## [0.5.1] - 2026-09-12
 
 球菜单图标体系精修。

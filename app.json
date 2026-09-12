@@ -2,7 +2,7 @@
   "expo": {
     "name": "TapMate",
     "slug": "TapMate",
-    "version": "0.5.1",
+    "version": "0.5.2",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "scheme": "tapmate",
@@ -24,7 +24,8 @@
       "expo-secure-store",
       "expo-sqlite",
       "expo-status-bar",
-      "expo-web-browser"
+      "expo-web-browser",
+      "./plugins/withReleaseSigning.js"
     ]
   }
 }
