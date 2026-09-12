@@ -1,4 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   BackHandler,
@@ -14,85 +20,70 @@ import { COLORS, FONT_SIZE, RADIUS, SPACING } from "../constants";
 import { getProvider } from "../providers/registry";
 import { CHROME_UA, WEBVIEW_BASE_PROPS } from "../providers/webConfig";
 
-// ===== 官网通道 · 全屏对话页（v0.5.0）=====
-// 参考 Msty Navigator 标签页 / Cherry Studio 快应用：官网对话是「一整页」，
-// 控件是布局兄弟节点而非悬浮层 → WebView 保持硬件加速（软件层曾拖垮历史面板）。
-// 此模式下首页悬浮球自动隐藏（RN 视图无法可靠覆盖硬件层 WebView，避免再造覆盖层）。
+// ===== 官网通道 · 全屏对话页（v0.5.3 无控制条版）=====
+// v0.5.3：顶部控制条移除——刷新/退出收进悬浮球菜单（球在本模式同样显示）。
+// 卡顿约束：WebView 保持默认硬件层（不设 software layerType，软件层曾拖垮历史面板）；
+// 悬浮球是 RN 层兄弟节点绝对定位叠加，不参与网页合成，滚动零干扰。
+// 网页后退/退出：Android 系统返回键 → 可后退则网页内后退，否则退回聊天首页。
 // 登录与对话共用此页：登录态 cookie 持久化在容器内，一次登录长期有效。
+
+export interface InlineWebChatHandle {
+  /** 悬浮球菜单「刷新网页」调用 */
+  reload: () => void;
+}
 
 interface Props {
   providerId: string;
-  onExit: () => void; // 返回聊天首页（悬浮球恢复显示）
+  onExit: () => void; // 返回聊天首页（悬浮球菜单可再次进入）
 }
 
-export default function InlineWebChat({ providerId, onExit }: Props) {
-  const insets = useSafeAreaInsets();
-  const provider = getProvider(providerId);
-  const webRef = useRef<WebView>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
-  const [canGoBack, setCanGoBack] = useState(false);
+const InlineWebChat = forwardRef<InlineWebChatHandle, Props>(
+  function InlineWebChat({ providerId, onExit }, ref) {
+    const insets = useSafeAreaInsets();
+    const provider = getProvider(providerId);
+    const webRef = useRef<WebView>(null);
+    const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState(false);
+    const [canGoBack, setCanGoBack] = useState(false);
 
-  // Android 返回键：优先官网页面内后退，无路可退时返回首页
-  useEffect(() => {
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (canGoBack) {
-        webRef.current?.goBack();
+    // 暴露给悬浮球菜单：刷新（不重建组件，父级仅存 ref）
+    useImperativeHandle(
+      ref,
+      () => ({
+        reload: () => {
+          setLoadError(false);
+          setLoading(true);
+          webRef.current?.reload();
+        },
+      }),
+      [],
+    );
+
+    // Android 返回键：优先官网页面内后退，无路可退时返回首页
+    useEffect(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (canGoBack) {
+          webRef.current?.goBack();
+          return true;
+        }
+        onExit();
         return true;
-      }
-      onExit();
-      return true;
-    });
-    return () => sub.remove();
-  }, [canGoBack, onExit]);
+      });
+      return () => sub.remove();
+    }, [canGoBack, onExit]);
 
-  if (!provider) return null;
+    if (!provider) return null;
 
-  const reload = () => {
-    setLoadError(false);
-    setLoading(true);
-    webRef.current?.reload();
-  };
+    const reload = () => {
+      setLoadError(false);
+      setLoading(true);
+      webRef.current?.reload();
+    };
 
-  return (
-    <View style={[styles.wrap, { paddingTop: insets.top }]}>
-      {/* 顶部控制条：布局兄弟节点，不悬浮于网页之上 */}
-      <View style={styles.bar}>
-        <Pressable
-          style={[styles.barBtn, !canGoBack && styles.barBtnHidden]}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          onPress={() => webRef.current?.goBack()}
-          accessibilityLabel="网页后退"
-        >
-          <Text style={styles.barBtnText}>‹</Text>
-        </Pressable>
-        <Text style={styles.barTitle} numberOfLines={1}>
-          {provider.emoji} {provider.name}
-          <Text style={styles.barMode}> · 官网对话</Text>
-        </Text>
-        {loading && !loadError ? (
-          <ActivityIndicator size="small" color={COLORS.accent} />
-        ) : null}
-        <Pressable
-          style={styles.barBtn}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          onPress={reload}
-          accessibilityLabel="刷新页面"
-        >
-          <Text style={styles.barBtnText}>⟳</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.barBtn, styles.exitBtn]}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          onPress={onExit}
-          accessibilityLabel="返回首页"
-        >
-          <Text style={[styles.barBtnText, { color: COLORS.danger }]}>✕</Text>
-        </Pressable>
-      </View>
-
-      {loadError ? (
-        <View style={styles.errBody}>
+    if (loadError) {
+      // 加载失败兜底卡（无网页可显示时给出路）
+      return (
+        <View style={[styles.errBody, { paddingTop: insets.top }]}>
           <Text style={styles.errEmoji}>📡</Text>
           <Text style={styles.errTitle}>无法加载 {provider.name} 官网</Text>
           <Text style={styles.errHint}>可能是网络不通或该域名需要代理</Text>
@@ -109,7 +100,11 @@ export default function InlineWebChat({ providerId, onExit }: Props) {
             <Text style={styles.errGhostText}>返回首页</Text>
           </Pressable>
         </View>
-      ) : (
+      );
+    }
+
+    return (
+      <View style={[styles.wrap, { paddingTop: insets.top }]}>
         <WebView
           ref={webRef}
           source={{ uri: provider.webUrl }}
@@ -132,48 +127,28 @@ export default function InlineWebChat({ providerId, onExit }: Props) {
             setLoadError(true);
           }}
         />
-      )}
-    </View>
-  );
-}
+        {/* 加载指示：轻量绝对定位覆盖层，不拦截触摸，加载完即卸载 */}
+        {loading ? (
+          <View style={styles.loadingOverlay} pointerEvents="none">
+            <ActivityIndicator size="small" color={COLORS.accent} />
+          </View>
+        ) : null}
+      </View>
+    );
+  },
+);
+
+export default InlineWebChat;
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: COLORS.surface },
-  bar: {
-    flexDirection: "row",
+  loadingOverlay: {
+    position: "absolute",
+    top: SPACING.md,
+    left: 0,
+    right: 0,
     alignItems: "center",
-    gap: SPACING.sm,
-    paddingHorizontal: SPACING.sm,
-    height: 48,
-    backgroundColor: COLORS.surfaceAlt,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  barTitle: {
-    flex: 1,
-    fontSize: FONT_SIZE.md,
-    fontWeight: "700",
-    color: COLORS.text,
-  },
-  barMode: {
-    fontSize: FONT_SIZE.xs,
-    fontWeight: "600",
-    color: COLORS.accentDark,
-  },
-  barBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: RADIUS.pill,
-    backgroundColor: COLORS.bgAlt,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  barBtnHidden: { opacity: 0.25 },
-  exitBtn: { backgroundColor: "#FDECEA" },
-  barBtnText: {
-    fontSize: FONT_SIZE.lg,
-    color: COLORS.textSecondary,
-    fontWeight: "700",
+    zIndex: 5,
   },
   webview: { flex: 1, backgroundColor: COLORS.surface },
   errBody: {

@@ -317,6 +317,8 @@ export default function ModelBall({
           <Pressable
             style={({ pressed }) => [
               styles.ball,
+              // v0.5.3：常态变浅不遮挡内容；展开时变深+高亮描边（静态切换，无动画）
+              open && styles.ballOn,
               pressed && styles.ballPressed,
             ]}
             onPress={() => {
@@ -363,7 +365,7 @@ const styles = StyleSheet.create({
     width: BALL,
     height: BALL,
     borderRadius: RADIUS.pill,
-    backgroundColor: "rgba(255,255,255,0.96)",
+    backgroundColor: "rgba(255,255,255,0.72)",
     borderWidth: 1,
     borderColor: COLORS.border,
     alignItems: "center",
@@ -373,6 +375,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 3 },
+    opacity: 0.72, // 常态变浅（v0.5.3）：不遮挡网页/聊天内容
+  },
+  // 展开时变深 + 高亮描边（静态切换，无动画，不影响性能）
+  ballOn: {
+    backgroundColor: "rgba(255,255,255,0.98)",
+    borderColor: COLORS.accent,
+    borderWidth: 2,
+    opacity: 1,
   },
   ballPressed: { transform: [{ scale: 0.93 }] },
   ballEmoji: { fontSize: 22 },

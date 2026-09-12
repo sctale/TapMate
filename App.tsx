@@ -44,10 +44,7 @@ export default function App() {
           </View>
           {showConfig ? (
             <View style={styles.page}>
-              <ConfigScreen
-                onOpenWeb={setWebProviderId}
-                onBack={() => setShowConfig(false)}
-              />
+              <ConfigScreen onOpenWeb={setWebProviderId} />
             </View>
           ) : null}
           {/* 登录容器覆盖层（仅登录场景；对话在首页嵌入完成） */}

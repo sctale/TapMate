@@ -33,6 +33,7 @@ import CompareSheet from "../components/CompareSheet";
 import SessionHistory from "../components/SessionHistory";
 import WelcomeModal from "../components/WelcomeModal";
 import InlineWebChat from "../components/InlineWebChat";
+import type { InlineWebChatHandle } from "../components/InlineWebChat";
 import ModelBall, {
   clampBallRatio,
   type BallAction,
@@ -83,6 +84,8 @@ export default function HomeScreen({
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
   const [showJump, setShowJump] = useState(false);
   const [inlineDismissed, setInlineDismissed] = useState(false);
+  // v0.5.3：官网全屏页无控制条，刷新动作经此 ref 由悬浮球菜单调用
+  const inlineWebRef = useRef<InlineWebChatHandle>(null);
   // 悬浮球（v0.4.0）：位置比例持久化
   const [ballRatio, setBallRatio] = useState(0.22);
   // 并发对比模式（v0.3.0）
@@ -717,6 +720,24 @@ export default function HomeScreen({
         onClick: () => setInlineDismissed(false),
       });
     }
+    // v0.5.3：官网全屏页不再有顶部控制条，刷新/退出收进球菜单
+    // （ref 稳定 + setState 稳定，不新增 memo 依赖）
+    if (showInline) {
+      list.push({
+        key: "web-reload",
+        emoji: "⟳",
+        tint: "rgba(66,133,244,0.14)",
+        label: "刷新网页",
+        onClick: () => inlineWebRef.current?.reload(),
+      });
+      list.push({
+        key: "web-exit",
+        emoji: "✕",
+        tint: "#FDECEA",
+        label: "退出官网页",
+        onClick: () => setInlineDismissed(true),
+      });
+    }
     list.push({
       key: "cfg",
       emoji: "⚙️",
@@ -733,6 +754,7 @@ export default function HomeScreen({
     isWebModel,
     isBrowserGate,
     inlineDismissed,
+    showInline,
     model?.label,
     apiAvailable.length,
     available.length,
@@ -769,6 +791,7 @@ export default function HomeScreen({
       <View style={{ flex: 1, paddingTop: showInline ? 0 : insets.top + 6 }}>
         {showInline && !compareActive ? (
           <InlineWebChat
+            ref={inlineWebRef}
             providerId={model!.providerId}
             onExit={() => setInlineDismissed(true)}
           />
@@ -955,8 +978,8 @@ export default function HomeScreen({
         }}
       />
 
-      {/* 悬浮球（v0.4.0）：唯一的模型切换与功能入口；官网全屏页/历史覆盖层内隐藏 */}
-      {!showInline && !historyVisible ? (
+      {/* 悬浮球（v0.4.0）：唯一的模型切换与功能入口；v0.5.3 起官网全屏页也显示（刷新/退出进菜单）；历史覆盖层内隐藏 */}
+      {!historyVisible ? (
         <ModelBall
           groups={groups}
           actions={actions}

@@ -15,7 +15,7 @@ Tap 系列应用之一，UI 延续 [TapLedger（一点账本）](https://github.
 ## 功能特性
 
 - **多模型聚合**：4 家厂商内置——ChatGPT、Gemini、DeepSeek、通义千问；国内厂商统一走 OpenAI 兼容协议，模型一键切换（厂商色点胶囊）
-- **官网通道 = 全屏对话页**：点官网通道模型即全屏打开官网聊天（硬件加速 WebView + 顶部控制条 ‹ 后退 / ⟳ 刷新 / ✕ 返回），Msty 式外壳、零 App 内跳转；悬浮球在该模式自动隐藏
+- **官网通道 = 全屏对话页**：点官网通道模型即全屏打开官网聊天（硬件加速 WebView，无顶部控制条）；刷新 / 退出收进悬浮球菜单，网页后退用系统返回键
   - 🌐 **应用内官网**：WebView 打开官方域名，登录后免费用订阅额度；登录与对话共用此全屏页
   - 🖥️ **系统浏览器（customTabs）**：Chrome Custom Tabs 打开官网，共享系统 Chrome 登录态（Gemini 官方合规方案；插在首页的合规引导卡说明 Google 政策并提供一键打开）
   - 🔑 **API Key**：官方 API + 统一原生对话界面（SSE 流式输出、本地历史、自定义 Base URL）
@@ -45,7 +45,7 @@ npm test           # vitest 单测
 
 ## 下载安装
 
-正式版 APK 在 [GitHub Releases](https://github.com/sctale/TapMate/releases) 页面下载（`TapMate-v0.5.2.apk`，包名 `com.tapmate.app`）。
+正式版 APK 在 [GitHub Releases](https://github.com/sctale/TapMate/releases) 页面下载（`TapMate-v0.5.3.apk`，包名 `com.tapmate.app`）。
 
 ## 构建与发布
 
@@ -97,7 +97,7 @@ src/
 │   ├── ballMath.ts             # 悬浮球几何纯函数（可单测）
 │   ├── CompareSheet.tsx        # ⚖️ 并发对比模型多选
 │   ├── SessionHistory.tsx      # 历史会话（页内覆盖层：搜索 + 分组 + 虚拟化）
-│   ├── InlineWebChat.tsx       # 官网通道全屏对话页（硬件 WebView + 顶部控制条）
+│   ├── InlineWebChat.tsx       # 官网通道全屏对话页（硬件 WebView，无控制条，刷新/退出走球菜单）
 │   ├── MarkdownText.tsx        # 轻量 Markdown 渲染器（代码/标题/列表…）
 │   ├── Toast.tsx               # 全局轻提示
 │   └── WelcomeModal.tsx        # 首启双通道说明卡（一次性）
@@ -151,4 +151,4 @@ scripts/
 
 ## 版本
 
-当前版本：0.5.2
+当前版本：0.5.3
