@@ -60,6 +60,7 @@ export const SETTING_KEYS = {
   LAST_MODEL: "last_model", // 上次使用的模型（JSON: {providerId, modelId}）
   WELCOME_SEEN: "welcome_seen", // 首启双通道引导是否已看过
   COMPARE_MODELS: "compare_models", // 并发对比所选模型（JSON: ModelRef[]）
+  BALL_POS: "ball_pos", // 悬浮球垂直位置（0-1 比例）
 } as const;
 
 // 并发对比模式的虚拟厂商/模型标识（v0.3.0）

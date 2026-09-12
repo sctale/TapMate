@@ -23,6 +23,7 @@ import type { ChannelType, ProviderDef } from "../types";
 
 interface Props {
   onOpenWeb: (providerId: string) => void; // 打开官网登录容器（WebView / Custom Tabs）
+  onBack: () => void; // 返回对话页（v0.4.0：dock 移除后唯一出口）
 }
 
 // 通道命名改为用户可理解的收益描述（audit-10）
@@ -41,7 +42,7 @@ const CHANNEL_DESC: Record<ChannelType, string> = {
 };
 
 // 配置页：厂商列表 + 通道选择 + API Key 管理
-export default function ConfigScreen({ onOpenWeb }: Props) {
+export default function ConfigScreen({ onOpenWeb, onBack }: Props) {
   const insets = useSafeAreaInsets();
   const {
     configs,
@@ -154,6 +155,17 @@ export default function ConfigScreen({ onOpenWeb }: Props) {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <View style={{ paddingTop: insets.top + SPACING.md }}>
+        <View style={styles.headRow}>
+          <Pressable
+            style={styles.backBtn}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            onPress={onBack}
+            accessibilityRole="button"
+            accessibilityLabel="返回对话"
+          >
+            <Text style={styles.backBtnText}>‹ 返回对话</Text>
+          </Pressable>
+        </View>
         <Text style={styles.title}>⚙️ 配置</Text>
         <Text style={styles.hint}>
           免费通道：登录官网账号、用订阅额度对话；API 通道：填
@@ -367,6 +379,20 @@ export default function ConfigScreen({ onOpenWeb }: Props) {
 const styles = StyleSheet.create({
   wrap: { flex: 1, paddingHorizontal: SPACING.lg },
   loading: { flex: 1, alignItems: "center", justifyContent: "center" },
+  headRow: { flexDirection: "row", marginBottom: SPACING.xs },
+  backBtn: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 6,
+    borderRadius: RADIUS.pill,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  backBtnText: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.accentDark,
+    fontWeight: "700",
+  },
   title: { fontSize: FONT_SIZE.xl, fontWeight: "800", color: COLORS.text },
   hint: {
     fontSize: FONT_SIZE.xs,

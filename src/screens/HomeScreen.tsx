@@ -9,10 +9,8 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Modal,
-  PanResponder,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -31,11 +29,17 @@ import {
   genUuid,
 } from "../constants";
 import MessageBubble from "../components/MessageBubble";
-import ModelSwitcher from "../components/ModelSwitcher";
 import CompareSheet from "../components/CompareSheet";
 import SessionHistory from "../components/SessionHistory";
 import WelcomeModal from "../components/WelcomeModal";
-import InlineWebChat from "../components/InlineWebChat";
+import InlineWebChat, {
+  type InlineWebHandle,
+} from "../components/InlineWebChat";
+import ModelBall, {
+  clampBallRatio,
+  type BallAction,
+  type BallGroup,
+} from "../components/ModelBall";
 import { useToast } from "../components/Toast";
 import { PROVIDERS, getProvider } from "../providers/registry";
 import { startChatStream } from "../providers/chatEngine";
@@ -55,16 +59,17 @@ import type { ChatMessage, ChatSession, ModelRef } from "../types";
 // 流式空闲超时：连续 45 秒没有任何增量视为连接悬挂（audit-23）
 const IDLE_TIMEOUT_MS = 45000;
 
-// 首页对话页：模型切换 + 流式对话（可停止/思考过程）+ ⚖️ 并发对比 + 本地持久化 + 历史会话
+// 首页对话页（v0.4.0 悬浮球版）：无顶栏无 dock，一颗球承载模型切换/对比/历史/配置
+// 流式对话（可停止/思考过程）+ ⚖️ 并发对比 + 本地持久化 + 历史会话
 // 官网通道（web）模型：官网会话直接嵌入首页内容区；customTabs：浏览器引导卡片
 export default function HomeScreen({
   inlineWebProviderId,
   onInlineWebConsumed,
-  onImmersiveChange,
+  onOpenConfig,
 }: {
   inlineWebProviderId: string | null;
   onInlineWebConsumed: () => void;
-  onImmersiveChange: (v: boolean) => void;
+  onOpenConfig: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const { configs, loaded, dynamicModels } = useProviders();
@@ -78,11 +83,11 @@ export default function HomeScreen({
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
   const [showJump, setShowJump] = useState(false);
   const [inlineDismissed, setInlineDismissed] = useState(false);
-  // 沉浸模式：选中模型后顶栏收起（点顶边浮出），底部 dock 由 App 隐藏（底边上滑唤出）
-  const [immersive, setImmersive] = useState(false);
-  const [peek, setPeek] = useState(false);
-  const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hintShown = useRef(false);
+  // 悬浮球（v0.4.0）：位置比例持久化 + 嵌入网页后退可用性 + 命令式控制句柄
+  const [ballRatio, setBallRatio] = useState(0.22);
+  const [webCanGoBack, setWebCanGoBack] = useState(false);
+  const webCtl = useRef<InlineWebHandle>(null);
   // 并发对比模式（v0.3.0）
   const [compareOn, setCompareOn] = useState(false);
   const [compareSel, setCompareSel] = useState<ModelRef[]>([]);
@@ -127,9 +132,15 @@ export default function HomeScreen({
     [available],
   );
 
-  // 初始化数据库 + 恢复上次对比选择
+  // 初始化数据库 + 恢复上次对比选择 + 悬浮球位置
   useEffect(() => {
     initChatDB().catch(() => {});
+    loadSetting(SETTING_KEYS.BALL_POS)
+      .then((raw) => {
+        const v = Number(raw);
+        if (raw && Number.isFinite(v)) setBallRatio(clampBallRatio(v));
+      })
+      .catch(() => {});
     loadSetting(SETTING_KEYS.COMPARE_MODELS)
       .then((raw) => {
         if (raw) {
@@ -145,7 +156,6 @@ export default function HomeScreen({
   }, []);
 
   // 默认模型：优先恢复上次使用的（audit-18），否则取第一个可用
-  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     if (!loaded || restoredRef.current || available.length === 0) return;
     restoredRef.current = true;
@@ -160,11 +170,6 @@ export default function HomeScreen({
           );
           if (hit) {
             setModel(hit);
-            // 官网模型冷启动即嵌入对话，直接进入沉浸布局
-            if (hit.modelId === "$web$") {
-              setImmersive(true);
-              onImmersiveChange(true);
-            }
             return;
           }
         }
@@ -174,7 +179,6 @@ export default function HomeScreen({
       setModel(available[0]);
     })();
   }, [loaded, available]);
-  /* eslint-enable react-hooks/exhaustive-deps */
 
   // 首启双通道说明（audit-27）
   useEffect(() => {
@@ -195,32 +199,27 @@ export default function HomeScreen({
     setStreaming(false);
   }, []);
 
-  // ===== 沉浸模式调度 =====
-  const summonChrome = useCallback(() => {
-    setPeek(true);
-    if (peekTimer.current) clearTimeout(peekTimer.current);
-    peekTimer.current = setTimeout(() => setPeek(false), 3600);
+  // ===== 悬浮球调度（v0.4.0：替代旧边缘手势，避开系统手势冲突） =====
+  const onBallRatio = useCallback((r: number) => {
+    const clamped = clampBallRatio(r);
+    setBallRatio(clamped);
+    saveSetting(SETTING_KEYS.BALL_POS, String(clamped)).catch(() => {});
   }, []);
 
-  const enterImmersive = useCallback(() => {
-    setImmersive(true);
-    onImmersiveChange(true);
-    summonChrome();
-    if (!hintShown.current) {
-      hintShown.current = true;
-      toast.show("沉浸模式：点屏幕顶边切换模型，从最底部上滑唤出导航", 3600);
-    }
-  }, [onImmersiveChange, summonChrome, toast]);
-
-  // 顶部边缘手势：轻点或向下滑 → 浮出 chrome
-  const topEdge = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_e, g) => g.dy > 12,
-      onPanResponderTerminationRequest: () => false,
-      onPanResponderGrant: () => summonChrome(),
-    }),
-  ).current;
+  // 首次进入给出球的位置说明（一次性）
+  useEffect(() => {
+    if (hintShown.current || !loaded) return;
+    hintShown.current = true;
+    const t = setTimeout(
+      () =>
+        toast.show(
+          "所有功能收进右侧悬浮球 · 点它切换模型/去配置，可拖动",
+          4000,
+        ),
+      800,
+    );
+    return () => clearTimeout(t);
+  }, [loaded, toast]);
 
   // 登录确认 → 自动选中该厂商并进入首页嵌入对话（修复「点我已登录后无处可用」）
   /* eslint-disable react-hooks/exhaustive-deps */
@@ -236,7 +235,6 @@ export default function HomeScreen({
       setMessages([]);
       sessionRef.current = null;
       setInlineDismissed(false);
-      enterImmersive();
       toast.show(
         configs.get(p.id)?.channel === "customTabs"
           ? `已连接 ${p.name}，在首页点「在浏览器打开」即可对话`
@@ -424,9 +422,8 @@ export default function HomeScreen({
       sessionRef.current = null;
       setShowJump(false);
       setInlineDismissed(false);
-      enterImmersive();
     },
-    [abortStreams, persistModel, enterImmersive],
+    [abortStreams, persistModel],
   );
 
   // 对比模式确认：选中 2-4 模型进入对比会话
@@ -444,10 +441,19 @@ export default function HomeScreen({
       sessionRef.current = null;
       setShowJump(false);
       setInlineDismissed(true);
-      enterImmersive();
       toast.show(`⚖️ 对比模式：${sel.length} 个模型同时回答`);
     },
-    [abortStreams, enterImmersive, toast],
+    [
+      abortStreams,
+      toast,
+      setCompareSel,
+      setCompareSheet,
+      setCompareOn,
+      setModel,
+      setMessages,
+      setShowJump,
+      setInlineDismissed,
+    ],
   );
 
   // 开关对比模式
@@ -516,9 +522,8 @@ export default function HomeScreen({
       }
       nearBottomRef.current = true;
       setShowJump(false);
-      enterImmersive();
     },
-    [abortStreams, persistModel, enterImmersive],
+    [abortStreams, persistModel],
   );
 
   // 新对话：中断在途流并清空当前会话（audit-7）
@@ -611,13 +616,14 @@ export default function HomeScreen({
   };
 
   const emptyText = useMemo(() => {
-    if (available.length === 0) return "先到「配置」页连接一个模型";
+    if (available.length === 0)
+      return "点右侧悬浮球 →「配置厂商与 Key」连接一个模型";
     if (compareActive)
       return "⚖️ 对比模式：一个问题同时发给所选模型，回答并排看";
     if (isBrowserGate)
       return `${model?.label ?? ""} 的对话在系统浏览器中进行（Google 政策），下方一键打开`;
     if (isWebModel)
-      return `点上方模型胶囊，${model?.label ?? ""} 的对话会直接嵌入在这里，无需跳转`;
+      return `点右侧悬浮球「打开 ${model?.label ?? ""} 嵌入对话」，官网界面直接嵌入这里`;
     return `在下方输入消息开始和 ${model?.label ?? ""} 对话`;
   }, [
     available.length,
@@ -627,104 +633,165 @@ export default function HomeScreen({
     model?.label,
   ]);
 
-  // 顶栏 chrome（标题 + 对比/新对话/历史 + 圆形模型栏）：常规态内联，沉浸态浮层复用
-  const chromeBlock = (
-    <>
-      <View style={styles.header}>
-        <Text style={styles.title}>💬 TapMate</Text>
-        <View style={styles.headerActions}>
-          <Pressable
-            style={[styles.headerBtn, compareActive && styles.headerBtnOn]}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            onPress={toggleCompare}
-            accessibilityRole="button"
-            accessibilityLabel="对比模式"
-          >
-            <Text
-              style={[
-                styles.headerBtnText,
-                compareActive && styles.headerBtnTextOn,
-              ]}
-            >
-              ⚖️
-            </Text>
-          </Pressable>
-          <Pressable
-            style={styles.headerBtn}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            onPress={newChat}
-            accessibilityRole="button"
-            accessibilityLabel="新对话"
-          >
-            <Text style={styles.headerBtnText}>✚</Text>
-          </Pressable>
-          <Pressable
-            style={styles.headerBtn}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            onPress={() => setHistoryVisible(true)}
-            accessibilityRole="button"
-            accessibilityLabel="历史会话"
-          >
-            <Text style={styles.headerBtnText}>🕘</Text>
-          </Pressable>
-        </View>
-      </View>
-      {compareActive ? (
-        // 对比模式：已选模型胶囊行 + 「改选」入口
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.compareRow}
-        >
-          {compareSel.map((m) => {
-            const p = getProvider(m.providerId);
-            return (
-              <View key={`${m.providerId}:${m.modelId}`} style={styles.chip}>
-                <View
-                  style={[
-                    styles.dot,
-                    { backgroundColor: p?.color ?? COLORS.accent },
-                  ]}
-                />
-                <Text style={styles.chipLabel} numberOfLines={1}>
-                  {m.label}
-                </Text>
-              </View>
-            );
-          })}
-          <Pressable
-            style={styles.chipEdit}
-            onPress={() => setCompareSheet(true)}
-          >
-            <Text style={styles.chipEditText}>改选</Text>
-          </Pressable>
-        </ScrollView>
-      ) : (
-        <ModelSwitcher
-          models={available}
-          active={model}
-          onSelect={selectModel}
-        />
-      )}
-    </>
-  );
+  // ===== 悬浮球菜单数据（v0.4.0：顶栏 chrome 与底部 dock 全部收进这颗球） =====
+  const groups = useMemo<BallGroup[]>(() => {
+    const order = PROVIDERS.map((p) => p.id);
+    const byP = new Map<string, ModelRef[]>();
+    for (const m of available) {
+      const arr = byP.get(m.providerId) ?? [];
+      arr.push(m);
+      byP.set(m.providerId, arr);
+    }
+    return [...byP.entries()]
+      .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
+      .map(([pid, list]) => {
+        const p = getProvider(pid);
+        return {
+          providerId: pid,
+          emoji: p?.emoji ?? "🤖",
+          name: p?.name ?? pid,
+          color: p?.color ?? COLORS.accent,
+          active: !compareActive && model?.providerId === pid,
+          selected:
+            compareActive && compareSel.some((c) => c.providerId === pid),
+          onPick: () => {
+            const keep =
+              model?.providerId === pid
+                ? (list.find((m) => m.modelId === model.modelId) ?? null)
+                : null;
+            selectModel(keep ?? list[0]);
+          },
+          sub:
+            list.length > 1
+              ? list.map((m) => ({
+                  modelId: m.modelId,
+                  active:
+                    !compareActive &&
+                    model?.providerId === pid &&
+                    model.modelId === m.modelId,
+                  onPick: () => selectModel(m),
+                }))
+              : undefined,
+        };
+      });
+  }, [available, model, compareActive, compareSel, selectModel]);
+
+  const actions = useMemo<BallAction[]>(() => {
+    const list: BallAction[] = [];
+    if (compareActive) {
+      list.push({
+        key: "cmp-edit",
+        emoji: "🧐",
+        label: `改选模型（${compareSel.length} 个）`,
+        onClick: () => setCompareSheet(true),
+      });
+      list.push({
+        key: "cmp-exit",
+        emoji: "↩️",
+        label: "退出对比模式",
+        onClick: toggleCompare,
+      });
+    } else {
+      list.push({
+        key: "cmp",
+        emoji: "⚖️",
+        label: "并发对比",
+        onClick: toggleCompare,
+        dim: apiAvailable.length < 2,
+      });
+    }
+    list.push({ key: "new", emoji: "✚", label: "新对话", onClick: newChat });
+    list.push({
+      key: "his",
+      emoji: "🕘",
+      label: "历史会话",
+      onClick: () => setHistoryVisible(true),
+    });
+    if (showInline) {
+      list.push(
+        {
+          key: "web-back",
+          emoji: "‹",
+          label: "网页后退",
+          onClick: () => webCtl.current?.goBack(),
+          dim: !webCanGoBack,
+        },
+        {
+          key: "web-reload",
+          emoji: "⟳",
+          label: "刷新官网",
+          onClick: () => webCtl.current?.reload(),
+        },
+        {
+          key: "web-exit",
+          emoji: "✕",
+          label: "退出嵌入对话",
+          onClick: () => setInlineDismissed(true),
+        },
+      );
+    }
+    if (isWebModel && inlineDismissed && !isBrowserGate) {
+      list.push({
+        key: "web-open",
+        emoji: "🌐",
+        label: `打开 ${model?.label ?? "官网"} 嵌入对话`,
+        onClick: () => setInlineDismissed(false),
+      });
+    }
+    list.push({
+      key: "cfg",
+      emoji: "⚙️",
+      label: "配置厂商与 Key",
+      onClick: onOpenConfig,
+      accent: available.length === 0,
+    });
+    return list;
+  }, [
+    compareActive,
+    compareSel.length,
+    toggleCompare,
+    newChat,
+    showInline,
+    webCanGoBack,
+    isWebModel,
+    isBrowserGate,
+    inlineDismissed,
+    model?.label,
+    apiAvailable.length,
+    available.length,
+    onOpenConfig,
+  ]);
+
+  const headerLabel = compareActive
+    ? `并发对比 · ${compareSel.length} 个模型`
+    : model && isWebModel
+      ? `${getProvider(model.providerId)?.name ?? ""} · 官网嵌入`
+      : model && model.modelId !== COMPARE
+        ? `${getProvider(model.providerId)?.name ?? ""} · ${model.modelId}`
+        : "TapMate · 未选择模型";
+  const ballEmoji = compareActive
+    ? "⚖️"
+    : model
+      ? (getProvider(model.providerId)?.emoji ?? "🌐")
+      : "🤖";
+  const ballBadge = compareActive
+    ? String(compareSel.length)
+    : isWebModel
+      ? "🌐"
+      : undefined;
 
   return (
     <KeyboardAvoidingView
       style={styles.wrap}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      {!immersive ? (
-        <View style={{ paddingTop: insets.top + SPACING.xs }}>
-          {chromeBlock}
-        </View>
-      ) : null}
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, paddingTop: insets.top + 6 }}>
         {showInline && !compareActive ? (
           <InlineWebChat
+            ref={webCtl}
             providerId={model!.providerId}
             onExit={() => setInlineDismissed(true)}
-            controlsVisible={peek}
+            onCanGoBackChange={setWebCanGoBack}
           />
         ) : isBrowserGate && !compareActive ? (
           <BrowserGate providerId={model!.providerId} />
@@ -833,22 +900,7 @@ export default function HomeScreen({
             <Text style={styles.sendText}>{streaming ? "■ 停止" : "发送"}</Text>
           </Pressable>
         </View>
-      ) : (
-        <View
-          style={[
-            styles.webHint,
-            { paddingBottom: SPACING.sm + insets.bottom },
-          ]}
-        >
-          <Text style={styles.webHintText}>
-            {showInline
-              ? "💬 对话就在上方嵌入的官网页面中进行，不占用 API 费用"
-              : isBrowserGate
-                ? "💬 按上方按钮在系统浏览器中对话（Google 政策限制应用内聊天）"
-                : "💬 点上方模型胶囊，重开嵌入对话"}
-          </Text>
-        </View>
-      )}
+      ) : null}
 
       {/* 长按消息的浮层动作（audit-17） */}
       <Modal
@@ -916,21 +968,16 @@ export default function HomeScreen({
         }}
       />
 
-      {/* 沉浸模式：peek 时浮出对应控件。嵌入网页态 → 网页右上控件条；其余 → 顶栏浮层 */}
-      {immersive ? (
-        peek && !showInline ? (
-          <View
-            style={[
-              styles.chromeOverlay,
-              { paddingTop: insets.top + SPACING.xs },
-            ]}
-          >
-            {chromeBlock}
-          </View>
-        ) : !peek ? (
-          <View style={styles.topEdge} {...topEdge.panHandlers} />
-        ) : null
-      ) : null}
+      {/* 悬浮球（v0.4.0）：唯一的模型切换与功能入口 */}
+      <ModelBall
+        groups={groups}
+        actions={actions}
+        headerLabel={headerLabel}
+        ballEmoji={ballEmoji}
+        ballBadge={ballBadge}
+        ratio={ballRatio}
+        onRatioChange={onBallRatio}
+      />
 
       {toast.node}
     </KeyboardAvoidingView>

@@ -1,7 +1,12 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
-  Animated,
   BackHandler,
   Linking,
   Pressable,
@@ -18,27 +23,39 @@ import { CHROME_UA, WEBVIEW_BASE_PROPS } from "../providers/webConfig";
 // ===== 首页嵌入式官网对话（Msty 式外壳模式）=====
 // 官网通道厂商连接后，官网会话（含官网自己的输入框）直接内嵌在首页内容区，
 // 聊天就在首页完成，不跳转第二个页面。
-// v0.2.3：去掉常驻顶栏——控件收成右上角浮动小条，数秒后自动淡出；
-// 点屏幕顶边（由 HomeScreen 的沉浸调度统一控制）再次唤出。
+// v0.4.0：去掉浮动控件条——后退/刷新/退出统一收进悬浮球菜单；
+// Android 用 software 图层，保证悬浮球能浮在 WebView 之上。
+
+export interface InlineWebHandle {
+  reload: () => void;
+  goBack: () => void;
+}
 
 interface Props {
   providerId: string;
   onExit: () => void; // 关闭嵌入，回到首页常规视图
-  controlsVisible: boolean; // 浮动控件可见性（由 HomeScreen 统一调度）
+  onCanGoBackChange?: (v: boolean) => void; // 上报网页可后退状态（球菜单「‹ 后退」置灰用）
 }
 
-export default function InlineWebChat({
-  providerId,
-  onExit,
-  controlsVisible,
-}: Props) {
+const InlineWebChat = forwardRef<InlineWebHandle, Props>(function InlineWebChat(
+  { providerId, onExit, onCanGoBackChange },
+  ref,
+) {
   const insets = useSafeAreaInsets();
   const provider = getProvider(providerId);
   const webRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [canGoBack, setCanGoBack] = useState(false);
-  const ctrlAnim = useRef(new Animated.Value(1)).current;
+
+  useImperativeHandle(ref, () => ({
+    reload: () => {
+      setLoadError(false);
+      setLoading(true);
+      webRef.current?.reload();
+    },
+    goBack: () => webRef.current?.goBack(),
+  }));
 
   // Android 返回键：优先官网页面内后退，无路可退时退出嵌入对话（不退出 App）
   useEffect(() => {
@@ -53,22 +70,7 @@ export default function InlineWebChat({
     return () => sub.remove();
   }, [canGoBack, onExit]);
 
-  // 浮动控件淡入淡出
-  useEffect(() => {
-    Animated.timing(ctrlAnim, {
-      toValue: controlsVisible ? 1 : 0,
-      duration: 220,
-      useNativeDriver: true,
-    }).start();
-  }, [controlsVisible, ctrlAnim]);
-
   if (!provider) return null;
-
-  const reload = () => {
-    setLoadError(false);
-    setLoading(true);
-    webRef.current?.reload();
-  };
 
   return (
     <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 0) }]}>
@@ -78,11 +80,13 @@ export default function InlineWebChat({
         style={styles.webview}
         userAgent={CHROME_UA}
         {...WEBVIEW_BASE_PROPS}
+        androidLayerType="software"
         onLoadStart={() => setLoadError(false)}
         onLoadEnd={() => setLoading(false)}
-        onNavigationStateChange={(nav: WebViewNavigation) =>
-          setCanGoBack(nav.canGoBack)
-        }
+        onNavigationStateChange={(nav: WebViewNavigation) => {
+          setCanGoBack(nav.canGoBack);
+          onCanGoBackChange?.(nav.canGoBack);
+        }}
         onError={(synthetic) => {
           const { nativeEvent } = synthetic;
           console.warn(
@@ -94,42 +98,6 @@ export default function InlineWebChat({
           setLoadError(true);
         }}
       />
-
-      {/* 浮动控件条：后退 / 刷新 / 退出（自动淡出，点顶边唤出） */}
-      <Animated.View
-        pointerEvents={controlsVisible ? "auto" : "none"}
-        style={[
-          styles.ctrlPill,
-          { top: insets.top + SPACING.sm, opacity: ctrlAnim },
-        ]}
-      >
-        {canGoBack ? (
-          <Pressable
-            style={styles.ctrlBtn}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            onPress={() => webRef.current?.goBack()}
-            accessibilityLabel="网页后退"
-          >
-            <Text style={styles.ctrlBtnText}>‹</Text>
-          </Pressable>
-        ) : null}
-        <Pressable
-          style={styles.ctrlBtn}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          onPress={reload}
-          accessibilityLabel="刷新页面"
-        >
-          <Text style={styles.ctrlBtnText}>⟳</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.ctrlBtn, styles.ctrlExit]}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          onPress={onExit}
-          accessibilityLabel="退出嵌入对话"
-        >
-          <Text style={[styles.ctrlBtnText, { color: COLORS.danger }]}>✕</Text>
-        </Pressable>
-      </Animated.View>
 
       {loading && !loadError ? (
         <View
@@ -145,7 +113,14 @@ export default function InlineWebChat({
           <Text style={styles.errEmoji}>📡</Text>
           <Text style={styles.errTitle}>无法加载 {provider.name} 官网</Text>
           <Text style={styles.errHint}>可能是网络不通或该域名需要代理</Text>
-          <Pressable style={styles.errPrimary} onPress={reload}>
+          <Pressable
+            style={styles.errPrimary}
+            onPress={() => {
+              setLoadError(false);
+              setLoading(true);
+              webRef.current?.reload();
+            }}
+          >
             <Text style={styles.errPrimaryText}>🔄 重试</Text>
           </Pressable>
           <Pressable
@@ -158,41 +133,13 @@ export default function InlineWebChat({
       ) : null}
     </View>
   );
-}
+});
+
+export default InlineWebChat;
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: COLORS.surface },
   webview: { flex: 1, backgroundColor: COLORS.surface },
-  ctrlPill: {
-    position: "absolute",
-    right: SPACING.md,
-    flexDirection: "row",
-    gap: SPACING.xs,
-    backgroundColor: "rgba(255,255,255,0.92)",
-    borderRadius: RADIUS.pill,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    padding: 4,
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    zIndex: 30,
-  },
-  ctrlBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: RADIUS.pill,
-    backgroundColor: COLORS.bgAlt,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ctrlExit: { backgroundColor: "#FDECEA" },
-  ctrlBtnText: {
-    fontSize: FONT_SIZE.md,
-    color: COLORS.textSecondary,
-    fontWeight: "700",
-  },
   loadingBox: { position: "absolute", alignSelf: "center", zIndex: 6 },
   errOverlay: {
     position: "absolute",
