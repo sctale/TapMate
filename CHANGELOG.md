@@ -1,5 +1,14 @@
 # 更新日志
 
+## [0.5.4] - 2026-09-13
+
+运行时取证修复：悬浮球失灵 / 键盘遮挡 / 设置页无出口 / 官网页状态栏避让。
+
+- **修复：悬浮球拖动后点击永久失灵**——根因（插桩日志证实）：`movedRef` 只在 PanResponder grant 复位，纯点击不触发 grant → 拖过一次球后所有点击被 `if(!movedRef)` 吞掉；现在 finishDrag 结束即复位
+- **修复：官网页输入框被键盘遮挡**——根因（插桩日志证实）：Android 15+ edge-to-edge 下 `adjustResize` 失效，键盘弹起窗口不缩小；现在监听键盘高度手动 `paddingBottom` 压缩 WebView 容器，网页底栏升到键盘上方
+- **修复：设置页无法返回**——v0.5.3 移除返回按钮后完全依赖系统返回键，而 `predictiveBackGestureEnabled:true` 使 Android 13+ 返回事件绕过 RN BackHandler；关闭预测式返回手势，传统返回键恢复
+- **优化：官网页状态栏避让按厂商开关**——DeepSeek 网页自带避让 → 沉浸式铺满顶到最高处；千问等不避让 → RN 补安全区 paddingTop（与时间/摄像头保持距离）；新增 `ProviderDef.webImmersive` 配置
+
 ## [0.5.3] - 2026-09-12
 
 官网全屏页去控制条，功能入口统一收进悬浮球。

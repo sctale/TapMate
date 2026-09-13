@@ -45,7 +45,7 @@ npm test           # vitest 单测
 
 ## 下载安装
 
-正式版 APK 在 [GitHub Releases](https://github.com/sctale/TapMate/releases) 页面下载（`TapMate-v0.5.3.apk`，包名 `com.tapmate.app`）。
+正式版 APK 在 [GitHub Releases](https://github.com/sctale/TapMate/releases) 页面下载（`TapMate-v0.5.4.apk`，包名 `com.tapmate.app`）。
 
 ## 构建与发布
 
@@ -151,4 +151,4 @@ scripts/
 
 ## 版本
 
-当前版本：0.5.3
+当前版本：0.5.4

@@ -8,6 +8,7 @@ import React, {
 import {
   ActivityIndicator,
   BackHandler,
+  Keyboard,
   Linking,
   Pressable,
   StyleSheet,
@@ -72,6 +73,21 @@ const InlineWebChat = forwardRef<InlineWebChatHandle, Props>(
       return () => sub.remove();
     }, [canGoBack, onExit]);
 
+    // v0.5.4 修复（ball-tap-ime/E）：Android 15+ edge-to-edge 下 adjustResize 失效，
+    // 键盘弹起时窗口不缩小 → 网页底部输入框被盖。手动用键盘高度作 paddingBottom
+    // 压缩 WebView 容器，迫使布局视口 resize（fixed 底栏随之升到键盘上方）。
+    const [kbdH, setKbdH] = useState(0);
+    useEffect(() => {
+      const sh = Keyboard.addListener("keyboardDidShow", (e) =>
+        setKbdH(e.endCoordinates?.height ?? 0),
+      );
+      const hi = Keyboard.addListener("keyboardDidHide", () => setKbdH(0));
+      return () => {
+        sh.remove();
+        hi.remove();
+      };
+    }, []);
+
     if (!provider) return null;
 
     const reload = () => {
@@ -104,7 +120,18 @@ const InlineWebChat = forwardRef<InlineWebChatHandle, Props>(
     }
 
     return (
-      <View style={[styles.wrap, { paddingTop: insets.top }]}>
+      // 状态栏避让按厂商开关（v0.5.4，用户实测）：
+      // - webImmersive=true（DeepSeek）：网页自带避让 → RN 铺满，内容顶到最高处
+      // - 缺省（千问等）：网页不避让 → RN 补 paddingTop，与时间/摄像头保持距离
+      <View
+        style={[
+          styles.wrap,
+          {
+            paddingTop: provider.webImmersive ? 0 : insets.top,
+            paddingBottom: kbdH,
+          },
+        ]}
+      >
         <WebView
           ref={webRef}
           source={{ uri: provider.webUrl }}

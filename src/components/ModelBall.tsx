@@ -130,6 +130,10 @@ export default function ModelBall({
       cb(hi > lo ? (nt - lo) / (hi - lo) : 0);
     }
     dragAnim.setValue(0);
+    // v0.5.4 修复（ball-tap-ime/D）：拖动结束即复位 movedRef。
+    // 旧实现只在 grant 复位，而纯点击不触发 grant → 拖过一次球后所有点击被永久吞掉。
+    // （PanResponder 接管手势后 Pressable 的 onPress 不会触发，故无需额外防抖窗口）
+    movedRef.current = false;
   };
   const finishDragRef = useRef(finishDrag);
   finishDragRef.current = finishDrag;
