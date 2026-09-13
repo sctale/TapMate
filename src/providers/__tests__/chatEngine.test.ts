@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { trimContext } from "../chatEngine";
+import { trimContext, idleTimeoutMsFor } from "../chatEngine";
 import { friendlyStreamError, friendlyTestReason } from "../errors";
 import type { ChatMessage } from "../../types";
 
@@ -37,6 +37,19 @@ describe("trimContext（audit-32 上下文裁剪）", () => {
 
   it("空列表返回空", () => {
     expect(trimContext([])).toEqual([]);
+  });
+});
+
+describe("idleTimeoutMsFor（P1-5 推理模型空闲超时分级）", () => {
+  it("推理模型放宽到 180s（思考期无增量不误杀）", () => {
+    expect(idleTimeoutMsFor("deepseek-reasoner")).toBe(180000);
+    expect(idleTimeoutMsFor("o3-mini")).toBe(180000);
+    expect(idleTimeoutMsFor("qwq-32b")).toBe(180000);
+  });
+  it("普通模型维持 45s", () => {
+    expect(idleTimeoutMsFor("deepseek-chat")).toBe(45000);
+    expect(idleTimeoutMsFor("gpt-4o")).toBe(45000);
+    expect(idleTimeoutMsFor("qwen-plus")).toBe(45000);
   });
 });
 

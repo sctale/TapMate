@@ -36,7 +36,6 @@ export const PROVIDERS: ProviderDef[] = [
     emoji: "🐋",
     color: "#4D6BFE",
     webUrl: "https://chat.deepseek.com/",
-    webImmersive: true, // DeepSeek 网页自带状态栏避让（v0.5.4 实测）
     preferredChannel: "web",
     apiProtocol: "openai-compatible",
     apiBaseUrl: "https://api.deepseek.com/v1",

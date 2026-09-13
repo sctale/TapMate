@@ -16,8 +16,6 @@ export interface ProviderDef {
   emoji: string; // 图标 emoji（Tap 系列风格）
   color: string; // 厂商主题色（切换器色点）
   webUrl: string; // 官网对话页地址（web/customTabs 通道用）
-  /** 官网页是否自行避让状态栏（true=RN 沉浸式铺满不加 paddingTop；false/缺省=RN 补 insets.top） */
-  webImmersive?: boolean;
   preferredChannel: ChannelType; // 首选接入通道
   apiProtocol?: ApiProtocol; // api 通道协议
   apiBaseUrl?: string; // API 端点（可被用户自定义覆盖）

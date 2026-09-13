@@ -120,17 +120,10 @@ const InlineWebChat = forwardRef<InlineWebChatHandle, Props>(
     }
 
     return (
-      // 状态栏避让按厂商开关（v0.5.4，用户实测）：
-      // - webImmersive=true（DeepSeek）：网页自带避让 → RN 铺满，内容顶到最高处
-      // - 缺省（千问等）：网页不避让 → RN 补 paddingTop，与时间/摄像头保持距离
+      // 顶部统一避让（v0.6.0）：所有官网页一律补状态栏白条，
+      // 消除 v0.5.4 按厂商开关造成的「DeepSeek 顶格、千问有白条」位置分叉
       <View
-        style={[
-          styles.wrap,
-          {
-            paddingTop: provider.webImmersive ? 0 : insets.top,
-            paddingBottom: kbdH,
-          },
-        ]}
+        style={[styles.wrap, { paddingTop: insets.top, paddingBottom: kbdH }]}
       >
         <WebView
           ref={webRef}

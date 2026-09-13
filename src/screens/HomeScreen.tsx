@@ -41,7 +41,7 @@ import ModelBall, {
 } from "../components/ModelBall";
 import { useToast } from "../components/Toast";
 import { PROVIDERS, getProvider } from "../providers/registry";
-import { startChatStream } from "../providers/chatEngine";
+import { startChatStream, idleTimeoutMsFor } from "../providers/chatEngine";
 import { IDLE_TIMEOUT_MESSAGE } from "../providers/errors";
 import { isProviderReady, useProviders } from "../state/ProvidersContext";
 import {
@@ -55,9 +55,6 @@ import {
 import { loadSetting, saveSetting } from "../secure/credentials";
 import { contextFor, retryContext } from "./chatContext";
 import type { ChatMessage, ChatSession, ModelRef } from "../types";
-
-// 流式空闲超时：连续 45 秒没有任何增量视为连接悬挂（audit-23）
-const IDLE_TIMEOUT_MS = 45000;
 
 // 首页对话页（v0.4.0 悬浮球版）：无顶栏无 dock，一颗球承载模型切换/对比/历史/配置
 // 流式对话（可停止/思考过程）+ ⚖️ 并发对比 + 本地持久化 + 历史会话
@@ -76,6 +73,9 @@ export default function HomeScreen({
   const [model, setModel] = useState<ModelRef | null>(null);
   // 官网全屏页没有输入区，toast 下移避免悬在半空
   const toast = useToast(model?.modelId === "$web$" ? 48 : 96);
+  // P1-6(v0.6.0)：show 引用稳定，回调/memo 不再依赖整个 toast 对象
+  const toastShow = toast.show;
+  const apiHintsShown = useRef(new Set<string>());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -209,7 +209,7 @@ export default function HomeScreen({
   }, []);
 
   // 首次进入给出球的位置说明（只给一次，BALL_HINT 持久化）
-  const showHint = toast.show;
+  const showHint = toastShow;
   useEffect(() => {
     if (!loaded) return;
     let t: ReturnType<typeof setTimeout> | null = null;
@@ -246,7 +246,7 @@ export default function HomeScreen({
       setMessages([]);
       sessionRef.current = null;
       setInlineDismissed(false);
-      toast.show(
+      toastShow(
         configs.get(p.id)?.channel === "customTabs"
           ? `已连接 ${p.name}，在首页点「在浏览器打开」即可对话`
           : `已连接 ${p.name}，已进入官网全屏对话`,
@@ -326,9 +326,10 @@ export default function HomeScreen({
           reasoning || undefined,
         ).catch(() => {});
       };
+      const idleMs = idleTimeoutMsFor(target.modelId);
       const resetIdle = () => {
         if (idleT) clearTimeout(idleT);
-        idleT = setTimeout(() => settle(IDLE_TIMEOUT_MESSAGE), IDLE_TIMEOUT_MS);
+        idleT = setTimeout(() => settle(IDLE_TIMEOUT_MESSAGE), idleMs);
       };
       resetIdle();
 
@@ -415,8 +416,24 @@ export default function HomeScreen({
       sessionRef.current = null;
       setShowJump(false);
       setInlineDismissed(false);
+      // 官网网页版割裂感治理：该厂商支持 API 且未配 Key 时引导一次（v0.6.0）
+      if (m.modelId === "$web$") {
+        const p = getProvider(m.providerId);
+        const cfg = configs.get(m.providerId);
+        if (
+          p?.apiProtocol &&
+          !cfg?.apiKey &&
+          !apiHintsShown.current.has(m.providerId)
+        ) {
+          apiHintsShown.current.add(m.providerId);
+          toastShow(
+            `${p.name} 当前是网页版；配 API Key 可获得与其他模型完全一致的原生体验（历史/Markdown/对比）`,
+            4600,
+          );
+        }
+      }
     },
-    [abortStreams, persistModel],
+    [abortStreams, persistModel, configs, toastShow],
   );
 
   // 对比模式确认：选中 2-4 模型进入对比会话
@@ -435,11 +452,11 @@ export default function HomeScreen({
       sessionRef.current = null;
       setShowJump(false);
       setInlineDismissed(true);
-      toast.show(`⚖️ 对比模式：${sel.length} 个模型同时回答`);
+      toastShow(`⚖️ 对比模式：${sel.length} 个模型同时回答`);
     },
     [
       abortStreams,
-      toast,
+      toastShow,
       setCompareSel,
       setCompareSheet,
       setCompareOn,
@@ -461,10 +478,10 @@ export default function HomeScreen({
         setModel(back);
         if (back) persistModel(back);
       }
-      toast.show("已退出对比模式");
+      toastShow("已退出对比模式");
     } else {
       if (apiAvailable.length < 2) {
-        toast.show("需至少 2 个 API 通道模型：点球 →「配置厂商与 Key」连接");
+        toastShow("需至少 2 个 API 通道模型：点球 →「配置厂商与 Key」连接");
         return;
       }
       setCompareSheet(true);
@@ -476,7 +493,7 @@ export default function HomeScreen({
     model?.modelId,
     compareSel,
     persistModel,
-    toast,
+    toastShow,
   ]);
 
   // 打开历史会话：识别对比会话并恢复所选模型
@@ -529,8 +546,8 @@ export default function HomeScreen({
     sessionRef.current = null;
     setMessages([]);
     setShowJump(false);
-    toast.show("已开始新对话");
-  }, [abortStreams, toast]);
+    toastShow("已开始新对话");
+  }, [abortStreams, toastShow]);
 
   // 重新生成（旧单模型数据兜底）：删除最后一条用户消息后的回答重发
   const regenerate = async () => {
@@ -594,7 +611,7 @@ export default function HomeScreen({
   const copyMessage = async (m: ChatMessage) => {
     setActionMsg(null);
     await Clipboard.setStringAsync(m.content);
-    toast.show("已复制到剪贴板");
+    toastShow("已复制到剪贴板");
   };
 
   // 智能滚动：仅当用户贴近底部时跟随流式更新（audit-31）
@@ -898,7 +915,7 @@ export default function HomeScreen({
               streaming
                 ? () => {
                     abortStreams();
-                    toast.show("已停止生成");
+                    toastShow("已停止生成");
                   }
                 : send
             }

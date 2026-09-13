@@ -1,6 +1,6 @@
 # TapMate 优化 SPEC（Agent 接力文档）
 
-> 更新时间：2026-09-13 / 当前版本：**v0.5.4**（已发布）
+> 更新时间：2026-09-13 / 当前版本：**v0.6.0**（已发布）
 > 用途：代码审查后的待办清单，供任何 Agent 按项接力执行。
 > 每完成一项：勾选 `[x]`、写入 CHANGELOG、走标准发布链路（见 §4）。
 
@@ -34,6 +34,9 @@
 - [x] 键盘遮挡网页输入框（edge-to-edge adjustResize 失效，paddingBottom=kbdH）（v0.5.4）
 - [x] 设置页返回键失效（关 predictive back）（v0.5.4）
 - [x] 官网页状态栏避让按厂商开关 `ProviderDef.webImmersive`（v0.5.4）
+- [x] **回滚厂商分叉**：v0.6.0 起官网页一律 RN 补状态栏白条（用户反馈 DeepSeek/千问顶部位置分叉割裂，`webImmersive` 字段删除）
+- [x] P1-5 推理模型空闲超时分级 180s（`chatEngine.idleTimeoutMsFor` + 单测）（v0.6.0）
+- [x] P1-6 toast 稳定引用：HomeScreen 回调/memo 依赖 `toast.show` 而非 toast 对象，缓解流式期整树重渲染（v0.6.0）
 
 ## 3. 待办清单
 
@@ -44,12 +47,12 @@
   - 方案：解绑 web 通道厂商时同步清对应域 Cookie（react-native-webview 无按域 API 时用 `WebStorage`/全量清 + 明示提示）
   - 验收：解绑 ChatGPT 后重进官网页为未登录态；单测/手测记录
 
-- [ ] **P1-5 长思考模型 45s 空闲超时误杀**
+- [x] ~~P1-5 长思考模型 45s 空闲超时误杀~~（v0.6.0 已做：idleTimeoutMsFor 分级 180s）
   - 现状：`HomeScreen.tsx` `IDLE_TIMEOUT_MS=45000`；o 系列/deepseek-reasoner 思考期无增量输出会被判超时丢弃
   - 方案：按模型分级（已知推理模型 120-180s），或收到任意 SSE 事件（含心跳/role 帧）即续命
   - 验收：deepseek-reasoner 长思考回答不被掐断
 
-- [ ] **P1-6 useToast 返回不稳定对象导致流式期整树重渲染**
+- [x] ~~P1-6 useToast 返回不稳定对象~~（v0.6.0 已做：HomeScreen 依赖 toast.show 稳定引用）
   - 现状：`Toast.tsx` 每次 render 返回新 `{show,node}` → HomeScreen 大量 memo 失效，每 120ms flush 全量重渲染
   - 方案：`useMemo`/`useRef` 稳定返回值
   - 验收：流式期间 React DevTools Profiler 中 ModelBall/消息列表无整树 re-render
